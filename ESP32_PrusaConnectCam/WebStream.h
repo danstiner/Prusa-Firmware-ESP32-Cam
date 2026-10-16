@@ -60,12 +60,14 @@ public:
 
 class AsyncJpegStreamResponse : public AsyncAbstractResponse {
 private:
-  camera_frame_t _frame;      ///< camera frame
+  uint8_t *_jpg;              ///< this client's copy of the frame being sent
+  size_t _jpgLen;             ///< length of the frame being sent
+  size_t _jpgCap;             ///< capacity of _jpg
+  size_t _jpgIndex;           ///< bytes of the frame already sent
   size_t _index;              ///< index of frame
   uint64_t lastAsyncRequest;  ///< last async request
   Camera *camera;             ///< pointer to camera
   Logs *log;                  ///< pointer to logs
-  camera_fb_t _dframe;        ///< camera frame
 
 public:
   AsyncJpegStreamResponse(Camera *, Logs *);

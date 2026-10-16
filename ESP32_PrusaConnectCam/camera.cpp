@@ -28,6 +28,9 @@ Camera::Camera(Configuration* i_conf, Logs* i_log, int8_t i_FlashPin) {
 
   CameraFlashPin = i_FlashPin;
   StreamOnOff = false;
+  StreamClients = 0;
+  FrameBuffer = NULL;
+  FrameBufferHeld = false;
   frameBufferSemaphore = xSemaphoreCreateMutex();
 
   /* Allocate memory for the frame buffer */
@@ -334,6 +337,7 @@ void Camera::ReinitCameraModule() {
   if (err != ESP_OK) {
     log->AddEvent(LogLevel_Warning, F("Camera error deinit camera module. Error: "), String(err, HEX));
   }
+  FrameBufferHeld = false; /* deinit freed the driver buffers */
   delay(100);
   InitCameraModule();
   ApplyCameraCfg();
@@ -394,9 +398,7 @@ void Camera::CapturePhoto() {
       delay(CameraFlashTime);
     }
 
-    if (FrameBuffer) {
-      esp_camera_fb_return(FrameBuffer);
-    }
+    ReturnFrameBuffer();
 
     /* Capturing a training photo. Without this sequence, the camera will not obtain the current photo but photo from the previous cycle. */
     FrameBuffer = esp_camera_fb_get();
@@ -415,6 +417,7 @@ void Camera::CapturePhoto() {
     do {
       log->AddEvent(LogLevel_Info, F("Taking photo..."));
 
+      ReturnFrameBuffer(); /* release a rejected frame before retrying */
       FrameBuffer = esp_camera_fb_get();
       if (!FrameBuffer) {
         CameraCaptureFailedCounter++;
@@ -422,6 +425,7 @@ void Camera::CapturePhoto() {
         xSemaphoreGive(frameBufferSemaphore);  // Release semaphore before returning
         return;
       }
+      FrameBufferHeld = true;
 
       char buf[150] = { '\0' };
       uint8_t ControlFlag = (uint8_t)FrameBuffer->buf[15];
@@ -479,20 +483,30 @@ void Camera::CapturePhoto() {
 }
 
 /**
-   @brief Capture Stream
-   @param camera_fb_t * - pointer to camera_fb_t
-   @return none
+   @brief Capture a stream frame into a buffer owned by the caller.
+          The camera frame buffer goes back to the driver before this returns, so the
+          caller can send its copy over many TCP callbacks without the camera DMA,
+          a photo capture or another stream client overwriting it mid-frame.
+   @param uint8_t*& - caller-owned frame buffer, (re)allocated in PSRAM as needed
+   @param size_t& - capacity of the caller-owned frame buffer
+   @return size_t - JPEG length, 0 on failure
 */
-void Camera::CaptureStream(camera_fb_t* i_buf) {
+size_t Camera::CaptureStream(uint8_t*& io_buf, size_t& io_cap) {
+  size_t len = 0;
+
   if (xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
     do {
+      /* release the photo held since CapturePhoto() or a rejected frame; the driver has a single buffer */
+      ReturnFrameBuffer();
+
       /* capture final photo */
       FrameBuffer = esp_camera_fb_get();
       if (!FrameBuffer) {
         log->AddEvent(LogLevel_Error, F("Camera capture failed! stream"));
-        i_buf = NULL;
-        return;
+        xSemaphoreGive(frameBufferSemaphore);
+        return 0;
       }
+      FrameBufferHeld = true;
 
       /* check if photo is correctly saved */
     } while (!(FrameBuffer->len > 100));
@@ -528,33 +542,22 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
         FrameBufferExif->buf = (uint8_t*)heap_caps_malloc(totalSize, MALLOC_CAP_SPIRAM);
         if (FrameBufferExif->buf == NULL) {
           log->AddEvent(LogLevel_Error, F("Failed to allocate memory for EXIF buffer"));
-          return;
+        } else {
+          /* copy the EXIF data to the buffer */
+          memcpy(FrameBufferExif->buf, PhotoExifData.header, PhotoExifData.len);
+
+          /* copy the image data to the buffer */
+          memcpy(FrameBufferExif->buf + PhotoExifData.len, FrameBuffer->buf + PhotoExifData.offset, FrameBuffer->len - PhotoExifData.offset);
+
+          /* Set the length of the buffer */
+          FrameBufferExif->len = totalSize;
+          ExifStatus = true;
         }
-
-        /* copy the EXIF data to the buffer */
-        memcpy(FrameBufferExif->buf, PhotoExifData.header, PhotoExifData.len);
-
-        /* copy the image data to the buffer */
-        memcpy(FrameBufferExif->buf + PhotoExifData.len, FrameBuffer->buf + PhotoExifData.offset, FrameBuffer->len - PhotoExifData.offset);
-
-        /* Set the length of the buffer */
-        FrameBufferExif->len = totalSize;
-
-        *i_buf = *FrameBufferExif;
-        ExifStatus = true;
-        
-      } else {
-        /* copy the frame buffer to the buffer */
-        *i_buf = *FrameBuffer;
       }
-
-    } else {
-      /* copy the frame buffer to the buffer */
-      *i_buf = *FrameBuffer;
     }
-#else
-    *i_buf = *FrameBuffer;
 #endif
+
+    camera_fb_t* src = (true == ExifStatus) ? FrameBufferExif : FrameBuffer;
 
     /* copy the frame buffer to the duplicate frame buffer. For sending photo to Prusa Connect */
     if (false == StreamSendingPhoto) {
@@ -568,23 +571,15 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
         free(FrameBufferDuplicate);
         FrameBufferDuplicate = NULL; /* Set to NULL after freeing */
       }
-      
+
       /* Allocate memory for the duplicate frame structure */
       FrameBufferDuplicate = (camera_fb_t*)heap_caps_malloc(sizeof(camera_fb_t), MALLOC_CAP_SPIRAM);
 
       /* Copy the metadata */
-      if (true == ExifStatus) {
-        memcpy(FrameBufferDuplicate, FrameBufferExif, sizeof(camera_fb_t));
-      } else {
-        memcpy(FrameBufferDuplicate, FrameBuffer, sizeof(camera_fb_t));
-      }
+      memcpy(FrameBufferDuplicate, src, sizeof(camera_fb_t));
 
       /* Allocate memory for the image data */
-      if (true == ExifStatus) {
-        FrameBufferDuplicate->buf = (uint8_t*)heap_caps_malloc(FrameBufferExif->len, MALLOC_CAP_SPIRAM);
-      } else {
-        FrameBufferDuplicate->buf = (uint8_t*)heap_caps_malloc(FrameBuffer->len, MALLOC_CAP_SPIRAM);
-      }
+      FrameBufferDuplicate->buf = (uint8_t*)heap_caps_malloc(src->len, MALLOC_CAP_SPIRAM);
 
       /* Check if memory allocation was successful */
       if (!FrameBufferDuplicate->buf) {
@@ -593,16 +588,45 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
         Serial.println("Failed to allocate memory for the duplicate frame buffer");
       } else {
         /* Copy the image data */
-        if (true == ExifStatus) {
-          memcpy(FrameBufferDuplicate->buf, FrameBufferExif->buf, FrameBufferExif->len);
-          
-        } else {
-          memcpy(FrameBufferDuplicate->buf, FrameBuffer->buf, FrameBuffer->len);
-        }
+        memcpy(FrameBufferDuplicate->buf, src->buf, src->len);
       }
     }
 
+    /* copy the frame for the stream client */
+    if (src->len > io_cap) {
+      uint8_t* tmp = (uint8_t*)heap_caps_realloc(io_buf, src->len, MALLOC_CAP_SPIRAM);
+      if (tmp == NULL) {
+        log->AddEvent(LogLevel_Error, F("Failed to allocate memory for stream frame"));
+      } else {
+        io_buf = tmp;
+        io_cap = src->len;
+      }
+    }
+
+    if (src->len <= io_cap) {
+      memcpy(io_buf, src->buf, src->len);
+      len = src->len;
+    }
+
+    ReturnFrameBuffer();
     xSemaphoreGive(frameBufferSemaphore);
+  }
+
+  return len;
+}
+
+/**
+   @brief Return the frame buffer to the camera driver, if it is still held.
+          The driver has a single frame buffer. Returning it twice marks it free while
+          it is queued, and the DMA then writes into every frame handed out after that.
+          Caller must hold frameBufferSemaphore.
+   @param none
+   @return none
+*/
+void Camera::ReturnFrameBuffer() {
+  if (true == FrameBufferHeld) {
+    esp_camera_fb_return(FrameBuffer);
+    FrameBufferHeld = false;
   }
 }
 
@@ -612,19 +636,25 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
    @return none
 */
 void Camera::CaptureReturnFrameBuffer() {
-  esp_camera_fb_return(FrameBuffer);
+  if (xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
+    ReturnFrameBuffer();
+    xSemaphoreGive(frameBufferSemaphore);
+  }
 }
 
 /**
-   @brief Set Stream Status
-   @param bool - true = on, false = off
+   @brief Set Stream Status. Stream clients are counted, so one client disconnecting
+          does not switch the stream off for the others.
+   @param bool - true = client connected, false = client disconnected
    @return none
 */
 void Camera::SetStreamStatus(bool i_status) {
-  StreamOnOff = i_status;
-  if (FrameBuffer) {
-    esp_camera_fb_return(FrameBuffer);
+  if (true == i_status) {
+    StreamClients++;
+  } else if (StreamClients > 0) {
+    StreamClients--;
   }
+  StreamOnOff = (StreamClients > 0);
   log->AddEvent(LogLevel_Info, F("Camera video stream: "), String(StreamOnOff));
 }
 

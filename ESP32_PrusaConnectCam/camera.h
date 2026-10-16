@@ -67,6 +67,8 @@ private:
   /* OV2640 camera module pinout and cfg*/
   camera_config_t CameraConfig;             ///< camera configuration
   camera_fb_t *FrameBuffer;                 ///< frame buffer
+  bool FrameBufferHeld;                     ///< FrameBuffer is taken from the driver and not yet returned
+  uint8_t StreamClients;                    ///< number of connected stream clients
   camera_fb_t *FrameBufferDuplicate;        ///< frame buffer duplicate
   camera_fb_t *FrameBufferExif;             ///< frame buffer with exif data
   sensor_t* sensor;                         ///< sensor
@@ -85,6 +87,7 @@ private:
   Logs *log;                                ///< pointer to Logs object
 
   void InitCameraModule();
+  void ReturnFrameBuffer();
 
 public:
   Camera(Configuration*, Logs*, int8_t);
@@ -95,7 +98,7 @@ public:
   void ReinitCameraModule();
   void GetCameraModel();
   void CapturePhoto();
-  void CaptureStream(camera_fb_t *);
+  size_t CaptureStream(uint8_t *&, size_t &);
   void CaptureReturnFrameBuffer();
   void SetStreamStatus(bool);
   bool GetStreamStatus();
