@@ -99,6 +99,7 @@ public:
   void GetCameraModel();
   void CapturePhoto();
   size_t CaptureStream(uint8_t *&, size_t &);
+  size_t CopyLastPhoto(uint8_t **);
   void CaptureReturnFrameBuffer();
   void SetStreamStatus(bool);
   bool GetStreamStatus();

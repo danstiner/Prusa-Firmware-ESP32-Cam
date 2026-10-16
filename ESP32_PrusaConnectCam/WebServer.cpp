@@ -44,36 +44,22 @@ void Server_InitWebServer() {
       request->send(404, "text/plain", "Photo not found!");
       return;
     }
-    SystemCamera.SetPhotoSending(true);
-
-    SystemLog.AddEvent(LogLevel_Verbose, "Photo size: " + String(SystemCamera.GetPhotoFb()->len) + " bytes");
-
-    if (SystemCamera.GetPhotoExifData()->header != NULL) {
-      /* send photo with exif data */
-      SystemLog.AddEvent(LogLevel_Verbose, F("Send photo with EXIF data"));
-      size_t total_len = SystemCamera.GetPhotoExifData()->len + SystemCamera.GetPhotoFb()->len - SystemCamera.GetPhotoExifData()->offset;
-      auto response = request->beginChunkedResponse("image/jpg", [total_len](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-        size_t len = 0;
-        if (index < SystemCamera.GetPhotoExifData()->len) {
-          len = min(maxLen, SystemCamera.GetPhotoExifData()->len - index);
-          memcpy(buffer, SystemCamera.GetPhotoExifData()->header + index, len);
-        } else {
-          size_t offset = index - SystemCamera.GetPhotoExifData()->len + SystemCamera.GetPhotoExifData()->offset;
-          len = min(maxLen, SystemCamera.GetPhotoFb()->len - offset);
-          memcpy(buffer, SystemCamera.GetPhotoFb()->buf + offset, len);
-        }
-        return len;
-      });
-      response->addHeader("Content-Length", String(total_len));
-      request->send(response);
-
-    } else {
-      /* send photo without exif data */
-      SystemLog.AddEvent(LogLevel_Verbose, F("Send photo without EXIF data"));
-      request->send(200, "image/jpg", SystemCamera.GetPhotoFb()->buf, SystemCamera.GetPhotoFb()->len);
+    /* send a private copy: the camera frame buffer and EXIF data change (or become NULL) while the response is sent over several TCP callbacks */
+    uint8_t *photo = NULL;
+    size_t total_len = SystemCamera.CopyLastPhoto(&photo);
+    if (0 == total_len) {
+      request->send(404, "text/plain", "Photo not found!");
+      return;
     }
+    SystemLog.AddEvent(LogLevel_Verbose, "Photo size: " + String(total_len) + " bytes");
 
-    SystemCamera.SetPhotoSending(false);
+    std::shared_ptr<uint8_t> photo_copy(photo, free);
+    AsyncWebServerResponse *response = request->beginResponse("image/jpg", total_len, [photo_copy, total_len](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t len = min(maxLen, total_len - index);
+      memcpy(buffer, photo_copy.get() + index, len);
+      return len;
+    });
+    request->send(response);
   });
 
   /* route to jquery */

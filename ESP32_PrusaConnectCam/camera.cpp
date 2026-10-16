@@ -585,6 +585,7 @@ size_t Camera::CaptureStream(uint8_t*& io_buf, size_t& io_cap) {
       if (!FrameBufferDuplicate->buf) {
         /* Handle error */
         free(FrameBufferDuplicate);
+        FrameBufferDuplicate = NULL;
         Serial.println("Failed to allocate memory for the duplicate frame buffer");
       } else {
         /* Copy the image data */
@@ -609,6 +610,59 @@ size_t Camera::CaptureStream(uint8_t*& io_buf, size_t& io_cap) {
     }
 
     ReturnFrameBuffer();
+    xSemaphoreGive(frameBufferSemaphore);
+  }
+
+  return len;
+}
+
+/**
+   @brief Copy the last photo, with its EXIF header, into a new PSRAM buffer.
+          The copy is taken under the frame buffer semaphore, so a stream frame or a new photo
+          cannot change it while a web response sends it over several TCP callbacks.
+   @param uint8_t** - new buffer, the caller must free it
+   @return size_t - photo length, 0 when no photo is available
+*/
+size_t Camera::CopyLastPhoto(uint8_t **o_buf) {
+  size_t len = 0;
+  *o_buf = NULL;
+
+  if (xSemaphoreTake(frameBufferSemaphore, pdMS_TO_TICKS(5000))) {
+    const uint8_t *exif = NULL;
+    size_t exif_len = 0;
+    const uint8_t *data = NULL;
+    size_t data_len = 0;
+
+    if (true == StreamOnOff) {
+      /* stream frames go back to the driver right after they are copied, the duplicate keeps the last one (with EXIF, if any) */
+      if ((FrameBufferDuplicate != NULL) && (FrameBufferDuplicate->buf != NULL)) {
+        data = FrameBufferDuplicate->buf;
+        data_len = FrameBufferDuplicate->len;
+      }
+    } else if (FrameBuffer != NULL) {
+      data = FrameBuffer->buf;
+      data_len = FrameBuffer->len;
+      if ((PhotoExifData.header != NULL) && (PhotoExifData.offset < data_len)) {
+        exif = PhotoExifData.header;
+        exif_len = PhotoExifData.len;
+        data += PhotoExifData.offset;
+        data_len -= PhotoExifData.offset;
+      }
+    }
+
+    if ((data != NULL) && (data_len > 0)) {
+      *o_buf = (uint8_t *)heap_caps_malloc(exif_len + data_len, MALLOC_CAP_SPIRAM);
+      if (*o_buf != NULL) {
+        if (exif_len > 0) {
+          memcpy(*o_buf, exif, exif_len);
+        }
+        memcpy(*o_buf + exif_len, data, data_len);
+        len = exif_len + data_len;
+      } else {
+        log->AddEvent(LogLevel_Error, F("Failed to allocate memory for photo copy"));
+      }
+    }
+
     xSemaphoreGive(frameBufferSemaphore);
   }
 
