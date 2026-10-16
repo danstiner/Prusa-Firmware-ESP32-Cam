@@ -12,6 +12,7 @@
 
 #include "WebServer.h"
 #include "Certificate.h"
+#include "esp_core_dump.h"
 
 AsyncWebServer server(WEB_SERVER_PORT);
 
@@ -98,6 +99,42 @@ void Server_InitWebServer_JsonData() {
     if (Server_CheckBasicAuth(request) == false)
       return;
     request->send(200, F("text/plain"), Server_GetJsonData().c_str());
+  });
+
+  /* route for crash diagnostics without an SD card: last reset reason, heap, stream stats and the core dump the panic handler saved to flash */
+  server.on("/crash_info", HTTP_GET, [](AsyncWebServerRequest* request) {
+    if (Server_CheckBasicAuth(request) == false)
+      return;
+
+    String out = "reset_reason: " + System_printMcuResetReasonSimple() + "\n";
+    out += "uptime_ms: " + String(millis()) + "\n";
+    out += "heap_free: " + String(ESP.getFreeHeap()) + " min_free: " + String(ESP.getMinFreeHeap()) + " largest_block: " + String(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + "\n";
+    out += "psram_free: " + String(ESP.getFreePsram()) + "\n";
+    out += "stream_clients: " + String(StreamActiveClients) + " connections_since_boot: " + String(StreamConnections) + " frames_sent: " + String(StreamFramesSent) + "\n";
+    out += "stream_max_frame_ms: " + String(StreamMaxFrameGapMs) + " slow_frames_over_1s: " + String(StreamSlowFrames) + "\n";
+    StreamMaxFrameGapMs = 0;
+
+    esp_core_dump_summary_t *dump = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
+    if ((dump != NULL) && (esp_core_dump_get_summary(dump) == ESP_OK)) {
+      out += "coredump_task: " + String(dump->exc_task) + "\n";
+      out += "coredump_pc: 0x" + String(dump->exc_pc, HEX) + "\n";
+      out += "coredump_exc_cause: " + String(dump->ex_info.exc_cause) + " exc_vaddr: 0x" + String(dump->ex_info.exc_vaddr, HEX) + "\n";
+      out += "coredump_bt_corrupted: " + String(dump->exc_bt_info.corrupted) + "\n";
+      out += "coredump_bt:";
+      for (uint32_t i = 0; i < dump->exc_bt_info.depth && i < 16; i++) {
+        out += " 0x" + String(dump->exc_bt_info.bt[i], HEX);
+      }
+      out += "\ncoredump_app_elf_sha256: ";
+      for (size_t i = 0; i < sizeof(dump->app_elf_sha256) && dump->app_elf_sha256[i] != 0; i++) {
+        out += (char)dump->app_elf_sha256[i];
+      }
+      out += "\n";
+    } else {
+      out += "coredump: none\n";
+    }
+    free(dump);
+
+    request->send(200, F("text/plain"), out);
   });
 
   /* route for json with wifi networks */

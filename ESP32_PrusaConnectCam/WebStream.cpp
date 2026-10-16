@@ -18,6 +18,13 @@ static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";             
 static const char *STREAM_PART = "Content-Type: %s\r\nContent-Length: %u\r\n\r\n";              ///< part for stream
 static const char *JPG_CONTENT_TYPE = "image/jpeg";                                           ///< content type for jpg
 
+/* stream diagnostics, reported by /crash_info */
+uint32_t StreamConnections = 0;     ///< stream clients connected since boot
+uint8_t StreamActiveClients = 0;    ///< stream clients connected now
+uint32_t StreamFramesSent = 0;      ///< frames sent to all clients since boot
+uint32_t StreamMaxFrameGapMs = 0;   ///< longest capture + send time of one frame since the last /crash_info read
+uint32_t StreamSlowFrames = 0;      ///< frames that took more than 1 s since boot
+
 /**
  * @brief Construct a new Async Buffer Response:: Async Buffer Response object
  * 
@@ -174,6 +181,8 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log) {
   _jpgIndex = 0;
   camera = i_cam;
   log = i_log;
+  StreamConnections++;
+  StreamActiveClients++;
   camera->SetStreamStatus(true);
 }
 
@@ -182,6 +191,7 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log) {
  * 
  */
 AsyncJpegStreamResponse::~AsyncJpegStreamResponse() {
+  StreamActiveClients--;
   camera->SetStreamStatus(false);
   free(_jpg);
 }
@@ -233,6 +243,15 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
       ////sprintf(buf, "Size: %uKB, Time: %ums (%.1f fps)", _jpgLen / 1024, fp, fps);
       sprintf(buf, "Size: %uKB, FPS: %.1f", _jpgLen / 1024, fps);
       Serial.println(buf);
+      StreamFramesSent++;
+      if (lastAsyncRequest != 0) {
+        if ((uint32_t)fp > StreamMaxFrameGapMs) {
+          StreamMaxFrameGapMs = fp;
+        }
+        if (fp > 1000) {
+          StreamSlowFrames++;
+        }
+      }
       lastAsyncRequest = end;
       _jpgLen = 0;
       _jpgIndex = 0;

@@ -26,6 +26,12 @@
 
 class Camera;
 
+extern uint32_t StreamConnections;
+extern uint8_t StreamActiveClients;
+extern uint32_t StreamFramesSent;
+extern uint32_t StreamMaxFrameGapMs;
+extern uint32_t StreamSlowFrames;
+
 typedef struct {
   camera_fb_t *fb;  ///< pointer to frame buffer
   size_t index;     ///< index of frame
