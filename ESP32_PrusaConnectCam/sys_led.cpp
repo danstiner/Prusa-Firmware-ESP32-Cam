@@ -44,8 +44,10 @@ sys_led::sys_led(uint8_t i_pin, uint32_t i_on_duration, Logs *i_log) {
  * 
  */
 void sys_led::init() {
+#if (true == STATUS_LED_ENABLE)
   pinMode(pin, OUTPUT);
   digitalWrite(pin, STATUS_LED_OFF_PIN_LEVEL);
+#endif
 }
 
 /**
@@ -53,7 +55,9 @@ void sys_led::init() {
  * 
  */
 void sys_led::toggle() {
+#if (true == STATUS_LED_ENABLE)
   digitalWrite(pin, !digitalRead(pin));
+#endif
 }
 
 /**
@@ -62,7 +66,9 @@ void sys_led::toggle() {
  * @param bool - state of LED
  */
 void sys_led::set(bool state) {
+#if (true == STATUS_LED_ENABLE)
   digitalWrite(pin, state);
+#endif
 }
 
 /**

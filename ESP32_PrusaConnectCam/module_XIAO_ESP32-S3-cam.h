@@ -94,7 +94,7 @@
 #define CFG_RESET_LED_LEVEL_ON      LOW     ///< GPIO pin level for status LED ON
 
 /* -------------- STATUS LED CFG ----------------*/
-#define STATUS_LED_ENABLE           true    ///< enable/disable status LED
+#define STATUS_LED_ENABLE           false   ///< disabled: GPIO21 is also the microSD DAT3/CS line, and driving it LOW at boot makes the card enter SPI mode, so SD_MMC fails to mount (#145)
 #define STATUS_LED_GPIO_NUM         21      ///< GPIO pin for status LED
 #define STATUS_LED_OFF_PIN_LEVEL    LOW    ///< GPIO pin level for status LED ON
 
