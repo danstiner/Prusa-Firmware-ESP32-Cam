@@ -164,7 +164,8 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log) {
   _contentLength = 0;
   _contentType = STREAM_CONTENT_TYPE;
   _sendContentLength = false;
-  _chunked = true;
+  /* not chunked: the library writes chunk framing even for HTTP/1.0 clients (e.g. Synology), which then get chunk sizes inside the JPEG data. The stream ends when the connection closes */
+  _chunked = false;
   _index = 0;
   lastAsyncRequest = 0;
   memset(&_frame, 0, sizeof(camera_frame_t));
@@ -250,13 +251,10 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
       return 0;
     }
 
-    /* send boundary */
-    size_t blen = 0;
-    if (index) {
-      blen = strlen(STREAM_BOUNDARY);
-      memcpy(buffer, STREAM_BOUNDARY, blen);
-      buffer += blen;
-    }
+    /* send boundary, also before the first part */
+    size_t blen = strlen(STREAM_BOUNDARY);
+    memcpy(buffer, STREAM_BOUNDARY, blen);
+    buffer += blen;
 
     /* send header */
     size_t hlen = sprintf((char *)buffer, STREAM_PART, JPG_CONTENT_TYPE, _frame.fb->len);
