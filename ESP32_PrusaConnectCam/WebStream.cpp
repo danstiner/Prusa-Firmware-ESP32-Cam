@@ -157,14 +157,16 @@ size_t AsyncFrameResponse::_content(uint8_t *buffer, size_t maxLen, size_t index
  * 
  * @param i_cam 
  * @param i_log 
+ * @param i_http_version - request->version(): 1 for HTTP/1.1, 0 for HTTP/1.0
  */
-AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log) {
+AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uint8_t i_http_version) {
   _callback = nullptr;
   _code = 200;
   _contentLength = 0;
   _contentType = STREAM_CONTENT_TYPE;
   _sendContentLength = false;
-  _chunked = true;
+  /* HTTP/1.0 clients cannot de-chunk; their body ends when the connection closes */
+  _chunked = (1 == i_http_version);
   _index = 0;
   lastAsyncRequest = 0;
   memset(&_frame, 0, sizeof(camera_frame_t));
@@ -250,13 +252,10 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
       return 0;
     }
 
-    /* send boundary */
-    size_t blen = 0;
-    if (index) {
-      blen = strlen(STREAM_BOUNDARY);
-      memcpy(buffer, STREAM_BOUNDARY, blen);
-      buffer += blen;
-    }
+    /* send boundary, also before the first part */
+    size_t blen = strlen(STREAM_BOUNDARY);
+    memcpy(buffer, STREAM_BOUNDARY, blen);
+    buffer += blen;
 
     /* send header */
     size_t hlen = sprintf((char *)buffer, STREAM_PART, JPG_CONTENT_TYPE, _frame.fb->len);
