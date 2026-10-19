@@ -27,11 +27,6 @@
 
 class Camera;
 
-typedef struct {
-  camera_fb_t *fb;  ///< pointer to frame buffer
-  size_t index;     ///< index of frame
-} camera_frame_t;   ///< camera frame structure
-
 class AsyncBufferResponse : public AsyncAbstractResponse {
 private:
   uint8_t *_buf;    ///< pointer to frame buffer
@@ -75,12 +70,13 @@ public:
 
 class AsyncJpegStreamResponse : public AsyncAbstractResponse {
 private:
-  camera_frame_t _frame;      ///< camera frame
+  FrameCopy _jpg;             ///< V: this viewer's copy of the frame being sent
+  size_t _sent;               ///< bytes of _jpg already handed to TCP
+  int64_t _connected_us;      ///< connection time; the first frame must start after it
   size_t _index;              ///< index of frame
   uint64_t lastAsyncRequest;  ///< last async request
   Camera *camera;             ///< pointer to camera
   Logs *log;                  ///< pointer to logs
-  camera_fb_t _dframe;        ///< camera frame
   bool _ended;                ///< a capture failed; every later call returns 0 so the response ends
 
 public:

@@ -56,16 +56,6 @@ void PrusaConnect::LoadCfgFromEeprom() {
 }
 
 /**
- * @brief take picture
- *
- * @param none
- * @return none
- */
-void PrusaConnect::TakePicture() {
-  camera->CapturePhoto();
-}
-
-/**
  * @brief Sending data to prusa connect backend
  * 
  * @param i_data  - data to send
@@ -124,29 +114,9 @@ bool PrusaConnect::SendDataToBackend(String *i_data, int i_data_length, String i
       if (SendPhoto == i_data_type) {
         log->AddEvent(LogLevel_Verbose, F("Sendig photo"));
 
-        /* get photo buffer */
-        bool SendWithExif = false;
-        uint8_t *fbBuf = NULL;
-        size_t fbLen = 0;
-        if (camera->GetStreamStatus() == true) {
-          /* get duplicate photo buffer from camera */
-          fbBuf = camera->GetPhotoFbDuplicate()->buf;
-          fbLen = camera->GetPhotoFbDuplicate()->len;
-        } else {
-          /* get original photo buffer from camera */
-          fbBuf = camera->GetPhotoFb()->buf;
-          fbLen = camera->GetPhotoFb()->len;
-        }
-
-        /* sending exif data */
-        if ((camera->GetPhotoExifData()->header != NULL) && (camera->GetStreamStatus() == false)) {
-          SendWithExif = true;
-          sendet_data += client.write(camera->GetPhotoExifData()->header, camera->GetPhotoExifData()->len);
-          fbBuf += camera->GetPhotoExifData()->offset;
-          fbLen -= camera->GetPhotoExifData()->offset;
-        } else {
-          SendWithExif = false;
-        }
+        /* the photo already carries its EXIF header */
+        uint8_t *fbBuf = camera->GetPhotoFb()->buf;
+        size_t fbLen = camera->GetPhotoFb()->len;
 
         /* sending photo */
         while (fbLen > 0) {
@@ -156,13 +126,6 @@ bool PrusaConnect::SendDataToBackend(String *i_data, int i_data_length, String i
           fbLen -= fragment;
         }
         client.println("\r\n");
-
-        /* log message */
-        if (SendWithExif) {
-          SystemLog.AddEvent(LogLevel_Verbose, F("Photo with EXIF data sent"));
-        } else {
-          SystemLog.AddEvent(LogLevel_Warning, F("Photo without EXIF data sent"));
-        }
 
         /* sending device information */
       } else if (SendInfo == i_data_type) {
@@ -234,19 +197,8 @@ bool PrusaConnect::SendDataToBackend(String *i_data, int i_data_length, String i
  */
 void PrusaConnect::SendPhotoToBackend() {
   log->AddEvent(LogLevel_Info, F("Start sending photo to prusaconnect"));
-  camera->SetPhotoSending(true);
   String Photo = "";
-  size_t total_len = 0;
-
-  if ((camera->GetPhotoExifData()->header != NULL) && (camera->GetStreamStatus() == false)) {
-    total_len = camera->GetPhotoExifData()->len + camera->GetPhotoFb()->len - camera->GetPhotoExifData()->offset;
-  } else if (camera->GetStreamStatus() == false) {
-    total_len = camera->GetPhotoFb()->len;
-  } else {
-    total_len = camera->GetPhotoFbDuplicate()->len;
-  }
-  SendDataToBackend(&Photo, total_len, F("image/jpg"), F("Photo"), HOST_URL_CAM_PATH, SendPhoto);
-  camera->SetPhotoSending(false);
+  SendDataToBackend(&Photo, camera->GetPhotoFb()->len, F("image/jpg"), F("Photo"), HOST_URL_CAM_PATH, SendPhoto);
 }
 
 /**
@@ -291,30 +243,20 @@ void PrusaConnect::SendInfoToBackend() {
 /**
  * @brief Send the photo the photo task just took to backend, and save it to SD card
  *
- * @param none
+ * @param bool i_captured - the photo task's CapturePhoto() result
  * @return none
  */
-void PrusaConnect::SendLastPhotoToBackend() {
-  /* check if photo was captured */
-  if (camera->GetCameraCaptureSuccess() == true) {
-
-    /* send photo to backend */
-    SendPhotoToBackend();
-
-    /* save photo to SD card */
-    if (false == camera->GetStreamStatus()) {
-      SavePhotoToSdCard();
-    }
-
-  } else {
+void PrusaConnect::SendLastPhotoToBackend(bool i_captured) {
+  if (false == i_captured) {
     log->AddEvent(LogLevel_Error, F("Error capturing photo. Stop sending to backend!"));
+    return;
   }
-  
-  /* return frame buffer */
-  if (camera->GetStreamStatus() == true) {
-    /* set stream flag for sending photo to false */
-    camera->StreamSetSendingPhoto(false);
-  }
+
+  /* send photo to backend */
+  SendPhotoToBackend();
+
+  /* save photo to SD card */
+  SavePhotoToSdCard();
 }
 
 /**
@@ -502,20 +444,11 @@ void PrusaConnect::SavePhotoToSdCard() {
     FileName += TIMELAPS_PHOTO_SUFFIX;
     log->AddEvent(LogLevel_Verbose, F("Saving file: "), FileName);
 
-    /* save photo to SD card */
-    if (camera->GetPhotoExifData()->header != NULL) {
-      if (log->WritePicture(FileName, camera->GetPhotoFb()->buf + camera->GetPhotoExifData()->offset, camera->GetPhotoFb()->len - camera->GetPhotoExifData()->offset, camera->GetPhotoExifData()->header, camera->GetPhotoExifData()->len) == true) {
-        log->AddEvent(LogLevel_Info, F("Photo saved to SD card. EXIF"));
-      } else {
-        log->AddEvent(LogLevel_Error, F("Error saving photo to SD card. EXIF"));
-      }
-
+    /* save photo to SD card, EXIF header included */
+    if (log->WritePicture(FileName, camera->GetPhotoFb()->buf, camera->GetPhotoFb()->len) == true) {
+      log->AddEvent(LogLevel_Info, F("Photo saved to SD card"));
     } else {
-      if (log->WritePicture(FileName, camera->GetPhotoFb()->buf, camera->GetPhotoFb()->len) == true) {
-        log->AddEvent(LogLevel_Info, F("Photo saved to SD card"));
-      } else {
-        log->AddEvent(LogLevel_Error, F("Error saving photo to SD card"));
-      }
+      log->AddEvent(LogLevel_Error, F("Error saving photo to SD card"));
     }
   }
 #endif

@@ -676,52 +676,6 @@ bool MicroSd::WritePicture(String i_PhotoName, uint8_t *i_PhotoData, size_t i_Ph
 }
 
 /**
-   @brief Write picture to the SD card with EXIF data
-   @param fs::FS - card
-   @param String - file name
-   @param uint8_t - data
-   @param size_t - data length
-   @param const uint8_t - EXIF data
-   @param size_t - EXIF data length
-   @return bool - status
-*/
-bool MicroSd::WritePicture(String i_PhotoName, uint8_t *i_PhotoData, size_t i_PhotoLen, const uint8_t *i_PtohoExif, size_t i_PhotoExifLen) {
-
-#if (true == CONSOLE_VERBOSE_DEBUG)  
-  Serial.println(F("WritePicture EXIF"));
-#endif
-  bool ret_stat = false;
-
-  File file = SD_MMC.open(i_PhotoName, FILE_WRITE);
-
-  if (file) {
-    size_t ret = 0;
-
-    ret = file.write(i_PtohoExif, i_PhotoExifLen);
-    ret += file.write(i_PhotoData, i_PhotoLen);
-    if (ret != (i_PhotoLen + i_PhotoExifLen)) {
-#if (true == CONSOLE_VERBOSE_DEBUG)        
-      Serial.println(F("Failed. Error while writing to file"));
-#endif
-      ret_stat = false;
-    } else {
-#if (true == CONSOLE_VERBOSE_DEBUG)  
-      Serial.printf("Saved as %s\n", i_PhotoName.c_str());
-#endif
-      ret_stat = true;
-    }
-    file.close();
-  } else {
-#if (true == CONSOLE_VERBOSE_DEBUG)  
-    Serial.printf("Failed. Could not open file: %s\n", i_PhotoName.c_str());
-#endif
-    ret_stat = false;
-  }
-  
- return ret_stat;
-}
-
-/**
    @brief Get card detected status
    @param none
    @return bool - status

@@ -29,6 +29,10 @@
 #define CAMERA_MAX_FAIL_CAPTURE     10                      ///< maximum count for failed capture
 #define PHOTO_REQUEST_MAX_WAITING   4                       ///< /action_capture requests that may wait for a photo at once
 #define PHOTO_REQUEST_TIMEOUT       10000                   ///< /action_capture answers after this long even without a new photo [ms]
+#define CAMERA_SETTLE_TIME          300                     ///< frames that start sooner after a camera init are skipped [ms]
+#define CAMERA_TAKE_RETRY_BUDGET    1000                    ///< a take stops handing frames back after this long [ms]
+#define CAMERA_TAKE_MAX_INVALID     5                       ///< a take stops after this many invalid frames
+#define HTTP_CLIENT_SILENT_TIMEOUT  10000                   ///< a stream viewer or download without a send callback this long may be replaced [ms]
 
 /* ------------ PRUSA BACKEND CFG  --------------*/
 #define HOST_URL_CAM_PATH           "/c/snapshot"           ///< path for sending photo to prusa connect

@@ -28,27 +28,13 @@ Camera::Camera(Configuration* i_conf, Logs* i_log, int8_t i_FlashPin) {
   log = i_log;
 
   CameraFlashPin = i_FlashPin;
-  StreamOnOff = false;
+  StreamLastSendMs = 0;
+  StreamEverSent = false;
   frameBufferSemaphore = xSemaphoreCreateMutex();
+  photoMutex = xSemaphoreCreateMutex();
 
-  /* Allocate memory for the frame buffer */
-  FrameBufferDuplicate = (camera_fb_t*)heap_caps_malloc(sizeof(camera_fb_t), MALLOC_CAP_SPIRAM);
-  if (FrameBufferDuplicate != NULL) {
-    memset(FrameBufferDuplicate, 0, sizeof(camera_fb_t)); 
-    FrameBufferDuplicate->buf = NULL;
-  }
-  /* Allocate memory for the frame buffer */
-  FrameBufferExif = (camera_fb_t*)heap_caps_malloc(sizeof(camera_fb_t), MALLOC_CAP_SPIRAM);
-  if (FrameBufferExif != NULL) {
-    memset(FrameBufferExif, 0, sizeof(camera_fb_t)); 
-    FrameBufferExif->buf = NULL;
-  }
-  StreamSendingPhoto = false;
-
-  PhotoExifData.header = NULL;
-  PhotoExifData.len = 0;
-  PhotoExifData.offset = 0;
-  PhotoSending = false;
+  memset(&LastPhoto, 0, sizeof(LastPhoto));
+  CameraInitTimeUs = 0;
   CameraCaptureFailedCounter = 0;
 }
 
@@ -149,6 +135,7 @@ void Camera::InitCameraModule() {
     log->AddEvent(LogLevel_Warning, F("Reset ESP32-cam!"));
     ESP.restart();
   } 
+  CameraInitTimeUs = esp_timer_get_time();
 }
 
 /**
@@ -220,15 +207,6 @@ framesize_t Camera::TransformFrameSizeDataType(uint8_t i_data) {
   }
 
   return ret;
-}
-
-/**
-   @brief Function set photo sending status
-   @param bool i_data - true = on, false = off
-   @return none
-*/
-void Camera::SetPhotoSending(bool i_data) {
-  PhotoSending = i_data;
 }
 
 /**
@@ -400,273 +378,230 @@ void Camera::GetCameraModel() {
 }
 
 /**
-   @brief Capture Photo and Save it to string array
-   @param none
-   @return none
+   @brief The take function: take a valid, fresh frame from the driver, copy it into io_dst and hand the driver buffer
+          straight back. Holds frameBufferSemaphore throughout, and i_opt.dst_mutex around the copy only. Does not log.
+   @param FrameCopy& io_dst - destination, grown if needed; unchanged unless the result is TakeResult_Ok
+   @param TakeOptions& i_opt - validity check, "not before" time, limits, EXIF, destination mutex
+   @param uint8_t* o_returned - if not NULL, the number of frames handed back unused
+   @return TakeResult_enum
 */
-void Camera::CapturePhoto() {
+TakeResult_enum Camera::TakeFrame(FrameCopy &io_dst, const TakeOptions &i_opt, uint8_t *o_returned) {
+  TakeResult_enum result = TakeResult_NoValidFrame;
+  uint8_t returned = 0;
+  uint8_t invalid = 0;
 
-  /* Check if photo is already sending */
-  if (true == PhotoSending) {
-    log->AddEvent(LogLevel_Info, F("Sending photo"));
-    return;
+  xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY);
+  const int64_t start_us = esp_timer_get_time();
+
+  /* skip the first frames after an init, they are often dark */
+  int64_t not_before_us = CameraInitTimeUs + ((int64_t)CAMERA_SETTLE_TIME * 1000);
+  if (i_opt.not_before_us > not_before_us) {
+    not_before_us = i_opt.not_before_us;
   }
 
-  /* Check if stream is on */
-  if (false == StreamOnOff) {
-    if (!xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
-      log->AddEvent(LogLevel_Error, F("Failed to take frame buffer semaphore"));
-      return;
+  while (true) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (NULL == fb) {
+      /* no retry: on the ESP32-S3 one failed get already took up to 8 s */
+      result = TakeResult_NoFrame;
+      break;
     }
 
-    CameraCaptureSuccess = false;
-    /* check flash, and enable FLASH LED */
-    if (true == CameraFlashEnable) {
-      SetFlashStatus(true);
-      delay(CameraFlashTime);
-    }
-
-    if (FrameBuffer) {
-      esp_camera_fb_return(FrameBuffer);
-    }
-
-    /* Capturing a training photo. Without this sequence, the camera will not obtain the current photo but photo from the previous cycle. */
-    FrameBuffer = esp_camera_fb_get();
-    if (FrameBuffer) {
-      esp_camera_fb_return(FrameBuffer);
-      log->AddEvent(LogLevel_Verbose, F("Camera capture training photo"));
-    } else {
-      esp_camera_fb_return(FrameBuffer);
-      log->AddEvent(LogLevel_Error, F("Camera capture failed training photo"));
-      //ReinitCameraModule();
-    }
-
-    int attempts = 0;
-    const int maxAttempts = 5;
-    PhotoExifData.header = NULL;
-    do {
-      log->AddEvent(LogLevel_Info, F("Taking photo..."));
-
-      FrameBuffer = esp_camera_fb_get();
-      if (!FrameBuffer) {
-        CameraCaptureFailedCounter++;
-        log->AddEvent(LogLevel_Error, F("Camera capture failed! photo. Attempt: "), String(CameraCaptureFailedCounter));
-        xSemaphoreGive(frameBufferSemaphore);  // Release semaphore before returning
-        return;
+    const bool valid = FrameIsValid(fb, i_opt.photo_check);
+    const int64_t started_us = ((int64_t)fb->timestamp.tv_sec * 1000000) + fb->timestamp.tv_usec;
+    if ((true == valid) && (started_us >= not_before_us)) {
+      if (NULL != i_opt.dst_mutex) {
+        xSemaphoreTake(i_opt.dst_mutex, portMAX_DELAY);
       }
-
-      char buf[150] = { '\0' };
-      uint8_t ControlFlag = (uint8_t)FrameBuffer->buf[15];
-      sprintf(buf, "The picture has been saved. Size: %d bytes, Photo resolution: %zu x %zu", FrameBuffer->len, FrameBuffer->width, FrameBuffer->height);
-      log->AddEvent(LogLevel_Info, buf);
-
-      if (ControlFlag != 0x00) {
-        log->AddEvent(LogLevel_Error, "Camera capture failed! flag: " + String(ControlFlag, HEX));
-        FrameBuffer->len = 0;
-
-      } else {
-        log->AddEvent(LogLevel_Info, F("Photo OK! "), String(ControlFlag, HEX));
-        CameraCaptureFailedCounter = 0;
-
-        /* generate exif header */
-        update_exif_from_cfg(imageExifRotation);
-        get_exif_header(FrameBuffer, &PhotoExifData.header, &PhotoExifData.len);
-        PhotoExifData.offset = get_jpeg_data_offset(FrameBuffer);
-        CameraCaptureSuccess = true;
-        
-        if (PhotoExifData.header != NULL) {
-          log->AddEvent(LogLevel_Info, F("Exif header OK! Len: "), String(PhotoExifData.len));
-        } else {
-          log->AddEvent(LogLevel_Error, F("Exif header failed! "), String(PhotoExifData.len));
-        }
+      const bool copied = CopyFrame(io_dst, fb, i_opt.exif);
+      if (NULL != i_opt.dst_mutex) {
+        xSemaphoreGive(i_opt.dst_mutex);
       }
-
-      attempts++;
-      if (attempts >= maxAttempts) {
-        log->AddEvent(LogLevel_Error, F("Failed to capture a valid photo after max attempts"));
-        break;
-      }
-    } while (!(FrameBuffer->len > 100));
-
-    /* Disable flash */
-    if (true == CameraFlashEnable) {
-      SetFlashStatus(false);
+      esp_camera_fb_return(fb);
+      result = (true == copied) ? TakeResult_Ok : TakeResult_NoMemory;
+      break;
     }
-    xSemaphoreGive(frameBufferSemaphore);
 
-  } else {
-    /* Stream is on, set flag for sending photo */
-    if (xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
-      StreamSendingPhoto = true;
-      xSemaphoreGive(frameBufferSemaphore);
+    /* an old frame does not count towards the limit: how many arrive before "not before" depends on the frame rate */
+    esp_camera_fb_return(fb);
+    returned++;
+    if (false == valid) {
+      invalid++;
+    }
+    if ((invalid >= i_opt.max_invalid) || ((esp_timer_get_time() - start_us) >= ((int64_t)CAMERA_TAKE_RETRY_BUDGET * 1000))) {
+      result = TakeResult_NoValidFrame;
+      break;
     }
   }
+
+  /* only camera faults count towards a re-init */
+  if (TakeResult_Ok == result) {
+    CameraCaptureFailedCounter = 0;
+  } else if ((TakeResult_NoMemory != result) && (CameraCaptureFailedCounter < UINT8_MAX)) {
+    CameraCaptureFailedCounter++;
+  }
+  xSemaphoreGive(frameBufferSemaphore);
+
+  if (NULL != o_returned) {
+    *o_returned = returned;
+  }
+  return result;
 }
 
 /**
-   @brief Capture Stream
-   @param camera_fb_t * - pointer to camera_fb_t
+   @brief Check a driver frame: long enough, within the JPEG buffer size, and for photos byte 15 is 0
+   @param camera_fb_t* i_fb - the frame
+   @param bool i_photo_check - also check byte 15
+   @return bool
+*/
+bool Camera::FrameIsValid(const camera_fb_t *i_fb, bool i_photo_check) {
+  if (i_fb->len <= 100) {
+    return false;
+  }
+  /* the driver never fills more than width x height / 5 */
+  if (i_fb->len > ((size_t)i_fb->width * i_fb->height / 5)) {
+    return false;
+  }
+  if ((true == i_photo_check) && (0x00 != i_fb->buf[15])) {
+    return false;
+  }
+  return true;
+}
+
+/**
+   @brief Copy a driver frame into io_dst, with the EXIF header in front when asked. When the frame does not fit,
+          io_dst grows to width x height / 5 plus the header, so later frames of this resolution fit; it never shrinks.
+   @param FrameCopy& io_dst - destination
+   @param camera_fb_t* i_fb - driver frame
+   @param bool i_exif - write the EXIF header in front
+   @return bool - false when io_dst could not grow; it then keeps its old content
+*/
+bool Camera::CopyFrame(FrameCopy &io_dst, camera_fb_t *i_fb, bool i_exif) {
+  const uint8_t *exif = NULL;
+  size_t exif_len = 0;
+  size_t offset = 0;
+
+  if (true == i_exif) {
+    /* the header replaces the JPEG's SOI and JFIF segment */
+    update_exif_from_cfg(imageExifRotation);
+    get_exif_header(i_fb, &exif, &exif_len);
+    offset = get_jpeg_data_offset(i_fb);
+    if ((NULL == exif) || (0 == offset)) {
+      exif = NULL;
+      exif_len = 0;
+      offset = 0;
+    }
+  }
+
+  const size_t need = exif_len + i_fb->len - offset;
+  if (io_dst.cap < need) {
+    size_t want = ((size_t)i_fb->width * i_fb->height / 5) + exif_len;
+    if (want < need) {
+      want = need;
+    }
+    /* PSRAM only: never fall back to internal RAM, which the upload's TLS needs */
+    uint8_t *buf = (uint8_t *)heap_caps_realloc(io_dst.fb.buf, want, MALLOC_CAP_SPIRAM);
+    if (NULL == buf) {
+      return false;
+    }
+    io_dst.fb.buf = buf;
+    io_dst.cap = want;
+  }
+
+  if (0 != exif_len) {
+    memcpy(io_dst.fb.buf, exif, exif_len);
+  }
+  memcpy(io_dst.fb.buf + exif_len, i_fb->buf + offset, i_fb->len - offset);
+  io_dst.fb.len = need;
+  io_dst.fb.width = i_fb->width;
+  io_dst.fb.height = i_fb->height;
+  io_dst.fb.format = i_fb->format;
+  io_dst.fb.timestamp = i_fb->timestamp;
+  return true;
+}
+
+/**
+   @brief Take a photo into P, the last photo, with the EXIF header in front.
+          Uses the flash only when no stream is running, so the stream does not flicker.
+   @param none
+   @return bool - true when P holds the new photo; on failure P keeps the previous one
+*/
+bool Camera::CapturePhoto() {
+  const bool flash = (true == CameraFlashEnable) && (false == GetStreamStatus());
+  if (true == flash) {
+    SetFlashStatus(true);
+    delay(CameraFlashTime);
+  }
+
+  /* a frame that started now, after the flash came on */
+  TakeOptions opt;
+  opt.photo_check = true;
+  opt.not_before_us = esp_timer_get_time();
+  opt.max_invalid = CAMERA_TAKE_MAX_INVALID;
+  opt.exif = true;
+  opt.dst_mutex = photoMutex;
+  uint8_t returned = 0;
+  TakeResult_enum result = TakeFrame(LastPhoto, opt, &returned);
+
+  /* turn the flash off, unless /light turned it on meanwhile */
+  if ((true == flash) && (true == CameraFlashEnable)) {
+    SetFlashStatus(false);
+  }
+
+  char buf[150] = { '\0' };
+  switch (result) {
+    case TakeResult_Ok:
+      snprintf(buf, sizeof(buf), "Photo OK. Size: %u bytes, resolution: %u x %u, frames handed back: %u", (unsigned)LastPhoto.fb.len, (unsigned)LastPhoto.fb.width, (unsigned)LastPhoto.fb.height, (unsigned)returned);
+      log->AddEvent(LogLevel_Info, buf);
+      break;
+    case TakeResult_NoFrame:
+      log->AddEvent(LogLevel_Error, F("Camera capture failed! photo. Failed count: "), String(CameraCaptureFailedCounter));
+      break;
+    case TakeResult_NoValidFrame:
+      log->AddEvent(LogLevel_Error, F("No valid photo frame. Frames handed back: "), String(returned));
+      break;
+    case TakeResult_NoMemory:
+      log->AddEvent(LogLevel_Error, F("Not enough memory for the photo"));
+      break;
+  }
+  return (TakeResult_Ok == result);
+}
+
+/**
+   @brief Take the next stream frame into a viewer's copy (V)
+   @param FrameCopy& io_jpg - the viewer's copy
+   @param int64_t i_not_before_us - reject frames that started earlier; the connection time for a viewer's first frame, else 0
    @return bool - false when no frame could be taken; the stream then ends
 */
-bool Camera::CaptureStream(camera_fb_t* i_buf) {
-  if (xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
-    do {
-      /* capture final photo */
-      FrameBuffer = esp_camera_fb_get();
-      if (!FrameBuffer) {
-        log->AddEvent(LogLevel_Error, F("Camera capture failed! stream"));
-        xSemaphoreGive(frameBufferSemaphore);
-        return false;
-      }
-
-      /* check if photo is correctly saved */
-    } while (!(FrameBuffer->len > 100));
-
-    /* check if the photo is rotated */
-    bool ExifStatus = false;
-
-#if (true == CAMERA_EXIF_ROTATION_STREAM)
-    if (1 != imageExifRotation) { /* 1 = image rotation 0 degree */
-      /* generate exif header */
-      update_exif_from_cfg(imageExifRotation);
-      get_exif_header(FrameBuffer, &PhotoExifData.header, &PhotoExifData.len);
-      PhotoExifData.offset = get_jpeg_data_offset(FrameBuffer);
-      if (PhotoExifData.header != NULL) {
-        /* memory allocation release */
-        if (FrameBufferExif != NULL) {
-          if (FrameBufferExif->buf != NULL) {
-            free(FrameBufferExif->buf);
-            FrameBufferExif->buf = NULL; /* Set to NULL after freeing */
-          }
-
-          free(FrameBufferExif);
-          FrameBufferExif = NULL; /* Set to NULL after freeing */
-        }
-
-        /* Allocate memory for the duplicate frame structure */
-        FrameBufferExif = (camera_fb_t*)heap_caps_malloc(sizeof(camera_fb_t), MALLOC_CAP_SPIRAM);
-
-        /* Calculate the total size of the buffer */
-        size_t totalSize = PhotoExifData.len + FrameBuffer->len - PhotoExifData.offset;
-
-        /* Allocate memory for the image data */
-        FrameBufferExif->buf = (uint8_t*)heap_caps_malloc(totalSize, MALLOC_CAP_SPIRAM);
-        if (FrameBufferExif->buf == NULL) {
-          log->AddEvent(LogLevel_Error, F("Failed to allocate memory for EXIF buffer"));
-          xSemaphoreGive(frameBufferSemaphore);
-          return false;
-        }
-
-        /* copy the EXIF data to the buffer */
-        memcpy(FrameBufferExif->buf, PhotoExifData.header, PhotoExifData.len);
-
-        /* copy the image data to the buffer */
-        memcpy(FrameBufferExif->buf + PhotoExifData.len, FrameBuffer->buf + PhotoExifData.offset, FrameBuffer->len - PhotoExifData.offset);
-
-        /* Set the length of the buffer */
-        FrameBufferExif->len = totalSize;
-
-        *i_buf = *FrameBufferExif;
-        ExifStatus = true;
-        
-      } else {
-        /* copy the frame buffer to the buffer */
-        *i_buf = *FrameBuffer;
-      }
-
-    } else {
-      /* copy the frame buffer to the buffer */
-      *i_buf = *FrameBuffer;
-    }
-#else
-    *i_buf = *FrameBuffer;
-#endif
-
-    /* copy the frame buffer to the duplicate frame buffer. For sending photo to Prusa Connect */
-    if (false == StreamSendingPhoto) {
-      /* memory allocation release */
-      if (FrameBufferDuplicate != NULL) {
-        if (FrameBufferDuplicate->buf != NULL) {
-          free(FrameBufferDuplicate->buf);
-          FrameBufferDuplicate->buf = NULL; /* Set to NULL after freeing */
-        }
-
-        free(FrameBufferDuplicate);
-        FrameBufferDuplicate = NULL; /* Set to NULL after freeing */
-      }
-      
-      /* Allocate memory for the duplicate frame structure */
-      FrameBufferDuplicate = (camera_fb_t*)heap_caps_malloc(sizeof(camera_fb_t), MALLOC_CAP_SPIRAM);
-
-      /* Copy the metadata */
-      if (true == ExifStatus) {
-        memcpy(FrameBufferDuplicate, FrameBufferExif, sizeof(camera_fb_t));
-      } else {
-        memcpy(FrameBufferDuplicate, FrameBuffer, sizeof(camera_fb_t));
-      }
-
-      /* Allocate memory for the image data */
-      if (true == ExifStatus) {
-        FrameBufferDuplicate->buf = (uint8_t*)heap_caps_malloc(FrameBufferExif->len, MALLOC_CAP_SPIRAM);
-      } else {
-        FrameBufferDuplicate->buf = (uint8_t*)heap_caps_malloc(FrameBuffer->len, MALLOC_CAP_SPIRAM);
-      }
-
-      /* Check if memory allocation was successful */
-      if (!FrameBufferDuplicate->buf) {
-        /* Handle error */
-        free(FrameBufferDuplicate);
-        Serial.println("Failed to allocate memory for the duplicate frame buffer");
-      } else {
-        /* Copy the image data */
-        if (true == ExifStatus) {
-          memcpy(FrameBufferDuplicate->buf, FrameBufferExif->buf, FrameBufferExif->len);
-          
-        } else {
-          memcpy(FrameBufferDuplicate->buf, FrameBuffer->buf, FrameBuffer->len);
-        }
-      }
-    }
-
-    xSemaphoreGive(frameBufferSemaphore);
-    return true;
-  }
-  return false;
+bool Camera::CaptureStream(FrameCopy &io_jpg, int64_t i_not_before_us) {
+  TakeOptions opt;
+  opt.photo_check = false;
+  opt.not_before_us = i_not_before_us;
+  opt.max_invalid = CAMERA_TAKE_MAX_INVALID;
+  opt.exif = (true == CAMERA_EXIF_ROTATION_STREAM) && (1 != imageExifRotation);
+  opt.dst_mutex = NULL;
+  return (TakeResult_Ok == TakeFrame(io_jpg, opt, NULL));
 }
 
 /**
-   @brief Capture Return Frame Buffer
+   @brief Record a stream send callback, for GetStreamStatus()
    @param none
    @return none
 */
-void Camera::CaptureReturnFrameBuffer() {
-  esp_camera_fb_return(FrameBuffer);
-}
-
-/**
-   @brief Set Stream Status
-   @param bool - true = on, false = off
-   @return none
-*/
-void Camera::SetStreamStatus(bool i_status) {
-  StreamOnOff = i_status;
-  if (FrameBuffer) {
-    esp_camera_fb_return(FrameBuffer);
-  }
-  log->AddEvent(LogLevel_Info, F("Camera video stream: "), String(StreamOnOff));
+void Camera::StreamMarkSend() {
+  StreamLastSendMs = millis();
+  StreamEverSent = true;
 }
 
 /**
    @brief Get Stream Status
    @param none
-   @return bool - true = on, false = off
+   @return bool - true when a stream sent data within the last HTTP_CLIENT_SILENT_TIMEOUT; a frozen viewer stops counting
 */
 bool Camera::GetStreamStatus() {
-  return StreamOnOff;
-}
-
-bool Camera::GetCameraCaptureSuccess() {
-  return CameraCaptureSuccess;
+  /* read before millis(), so a send between the two reads cannot wrap the difference */
+  const uint32_t last_send_ms = StreamLastSendMs;
+  return (true == StreamEverSent) && ((millis() - last_send_ms) < HTTP_CLIENT_SILENT_TIMEOUT);
 }
 
 /**
@@ -716,112 +651,12 @@ void Camera::StreamClearFrameData() {
 }
 
 /**
-   @brief Set Sending Photo for Stream
-   @param bool - sending photo
-   @return none
-*/
-void Camera::StreamSetSendingPhoto(bool i_data) {
-  StreamSendingPhoto = i_data;
-}
-
-/**
-   @brief Get Photo
-   @param none
-   @return String - photo
-*/
-String Camera::GetPhoto() {
-  Photo = "";
-  for (size_t i = 0; i < FrameBuffer->len; i++) {
-    Photo += (char)FrameBuffer->buf[i];
-  }
-  return Photo;
-}
-
-/**
    @brief Get Photo Frame Buffer
    @param none
-   @return camera_fb_t* - photo frame buffer
+   @return camera_fb_t* - P, the last photo with EXIF in front. Only the photo task (its only writer) reads it directly; downloads copy it under photoMutex.
 */
 camera_fb_t* Camera::GetPhotoFb() {
-  return FrameBuffer;
-}
-
-/**
-   @brief Get Photo Frame Buffer Duplicate
-   @param none
-   @return camera_fb_t* - photo frame buffer duplicate
-*/
-camera_fb_t* Camera::GetPhotoFbDuplicate() {
-  return FrameBufferDuplicate;
-}
-
-/**
-   @brief Get Photo Exif Data
-   @param none
-   @return PhotoExifData_t* - photo exif data
-*/
-PhotoExifData_t* Camera::GetPhotoExifData() {
-  return &PhotoExifData;
-}
-
-/**
-   @brief Copy Photo
-   @param camera_fb_t* - pointer to camera_fb_t
-   @return none
-*/
-void Camera::CopyPhoto(camera_fb_t* i_data) {
-  *i_data = *FrameBuffer;
-}
-
-/**
-   @brief Copy Photo
-   @param String* - pointer to string
-   @return none
-*/
-void Camera::CopyPhoto(String* i_data) {
-  Photo = "";
-  for (size_t i = 0; i < FrameBuffer->len; i++) {
-    Photo += (char)FrameBuffer->buf[i];
-  }
-  *i_data = Photo;
-}
-
-/**
- * @brief Copy photo from frame buffer to string array with range
- * 
- * @param i_data - pointer to string 
- * @param i_from - start index
- * @param i_to - end index
- */
-void Camera::CopyPhoto(String* i_data, int i_from, int i_to) {
-  *i_data = "";
-
-  for (int i = i_from; i < i_to; i++) {
-    *i_data += (char)FrameBuffer->buf[i];
-  }
-}
-
-/**
- * @brief Copy photo from frame buffer to char array with range
- * 
- * @param i_data - pointer to char array
- * @param i_from - start index
- * @param i_to - end index
- */
-void Camera::CopyPhoto(char* i_data, int i_from, int i_to) {
-  int length = i_to - i_from;
-  memcpy(i_data, FrameBuffer->buf + i_from, length);
-  i_data[length + 1] = '\0';
-}
-
-/**
- * @brief Get Photo Size
- * 
- * @return int - photo size
- */
-int Camera::GetPhotoSize() {
-  log->AddEvent(LogLevel_Verbose, F("Photo size: "), String(FrameBuffer->len));
-  return (int)FrameBuffer->len;
+  return &LastPhoto.fb;
 }
 
 /**

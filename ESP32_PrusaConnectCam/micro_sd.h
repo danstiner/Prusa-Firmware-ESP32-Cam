@@ -70,7 +70,6 @@ public:
   int CountFilesInDir(fs::FS &, String );
 
   bool WritePicture(String, uint8_t *, size_t);
-  bool WritePicture(String, uint8_t *, size_t, const uint8_t *, size_t);
 
   void CheckCardUsedStatus();
   bool isCardCorrupted();

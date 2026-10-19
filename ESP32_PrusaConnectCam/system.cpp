@@ -528,14 +528,14 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
     uint32_t requested = PhotoCaptureRequests.Pending();
     if ((true == upload) || (true == PhotoCaptureRequests.HasWaiting(requested))) {
       esp_task_wdt_reset();
-      SystemCamera.CapturePhoto();
+      bool captured = SystemCamera.CapturePhoto();
       PhotoCaptureRequests.ServeUpTo(requested);
 
       /* send photo to backend*/
       if (true == upload) {
         SystemLog.AddEvent(LogLevel_Verbose, F("Task photo processing. Start sending photo"));
         esp_task_wdt_reset();
-        Connect.SendLastPhotoToBackend();
+        Connect.SendLastPhotoToBackend(captured);
       }
     }
     

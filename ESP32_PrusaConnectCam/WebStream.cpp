@@ -222,21 +222,22 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uin
   /* HTTP/1.0 clients cannot de-chunk; their body ends when the connection closes */
   _chunked = (1 == i_http_version);
   _index = 0;
+  _sent = 0;
+  _connected_us = esp_timer_get_time();
   lastAsyncRequest = 0;
   _ended = false;
-  memset(&_frame, 0, sizeof(camera_frame_t));
+  memset(&_jpg, 0, sizeof(_jpg));
   camera = i_cam;
   log = i_log;
-  camera->SetStreamStatus(true);
+  camera->StreamMarkSend();
 }
 
 /**
- * @brief Destroy the Async Jpeg Stream Response:: Async Jpeg Stream Response object
+ * @brief Destroy the Async Jpeg Stream Response:: Async Jpeg Stream Response object: free V
  * 
  */
 AsyncJpegStreamResponse::~AsyncJpegStreamResponse() {
-  camera->SetStreamStatus(false);
-  camera->CaptureReturnFrameBuffer();
+  free(_jpg.fb.buf);
 }
 
 /**
@@ -276,23 +277,23 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
   if (true == _ended) {
     return 0;
   }
+  camera->StreamMarkSend();
 
-  if (!_frame.fb || _frame.index == _frame.fb->len) {
+  /* the previous frame is with TCP entirely: take the next one */
+  if ((0 == _jpg.fb.len) || (_sent == _jpg.fb.len)) {
     delay(1);
 
-    if (index && _frame.fb) {
+    if (index && _jpg.fb.len) {
       uint64_t end = (uint64_t)micros();
       int fp = (end - lastAsyncRequest) / 1000;
       float fps = 1000.0 / fp;
       char buf[50] = { '\0' };
-      camera->StreamSetFrameSize(_frame.fb->len / 1024);
+      camera->StreamSetFrameSize(_jpg.fb.len / 1024);
       camera->StreamSetFrameFps(fps);
-      ////sprintf(buf, "Size: %uKB, Time: %ums (%.1f fps)", _frame.fb->len / 1024, fp, fps);
-      sprintf(buf, "Size: %uKB, FPS: %.1f", _frame.fb->len / 1024, fps);
+      ////sprintf(buf, "Size: %uKB, Time: %ums (%.1f fps)", _jpg.fb.len / 1024, fp, fps);
+      sprintf(buf, "Size: %uKB, FPS: %.1f", _jpg.fb.len / 1024, fps);
       Serial.println(buf);
       lastAsyncRequest = end;
-      camera->CaptureReturnFrameBuffer();
-      _frame.fb = NULL;
     }
 
     /* check space for headers */
@@ -301,15 +302,13 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
       return RESPONSE_TRY_AGAIN;
     }
 
-    /* get frame */
-    _frame.index = 0;
-    if (false == camera->CaptureStream(&_dframe)) {
+    /* get frame; a viewer's first frame must start after it connected */
+    if (false == camera->CaptureStream(_jpg, (0 == index) ? _connected_us : 0)) {
       log->AddEvent(LogLevel_Error, F("Stream capture frame failed"));
-      _frame.fb = NULL;
       _ended = true;
       return 0;
     }
-    _frame.fb = &_dframe;
+    _sent = 0;
 
     /* send boundary, also before the first part */
     size_t blen = strlen(STREAM_BOUNDARY);
@@ -317,31 +316,31 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
     buffer += blen;
 
     /* send header */
-    size_t hlen = sprintf((char *)buffer, STREAM_PART, JPG_CONTENT_TYPE, _frame.fb->len);
+    size_t hlen = sprintf((char *)buffer, STREAM_PART, JPG_CONTENT_TYPE, _jpg.fb.len);
     buffer += hlen;
 
     /* send frame */
     hlen = maxLen - hlen - blen;
-    if (hlen > _frame.fb->len) {
-      maxLen -= hlen - _frame.fb->len;
-      hlen = _frame.fb->len;
+    if (hlen > _jpg.fb.len) {
+      maxLen -= hlen - _jpg.fb.len;
+      hlen = _jpg.fb.len;
     }
 
-    memcpy(buffer, _frame.fb->buf, hlen);
-    _frame.index += hlen;
+    memcpy(buffer, _jpg.fb.buf, hlen);
+    _sent += hlen;
     delay(1);
     return maxLen;
   }
 
   /* check next send data */
-  size_t available = _frame.fb->len - _frame.index;
+  size_t available = _jpg.fb.len - _sent;
   if (maxLen > available) {
     maxLen = available;
   }
 
   delay(1);
-  memcpy(buffer, _frame.fb->buf + _frame.index, maxLen);
-  _frame.index += maxLen;
+  memcpy(buffer, _jpg.fb.buf + _sent, maxLen);
+  _sent += maxLen;
   return maxLen;
 }
 

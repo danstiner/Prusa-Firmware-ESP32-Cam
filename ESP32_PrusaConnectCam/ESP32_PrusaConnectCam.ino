@@ -85,10 +85,9 @@ void setup() {
   /* init WiFi mngt */
   SystemWifiMngt.Init();
 
-  /* init camera interface */
+  /* init camera interface, and take the first photo, so /saved-photo.jpg works before the first upload */
   SystemCamera.Init();
   SystemCamera.CapturePhoto();
-  SystemCamera.CaptureReturnFrameBuffer();
 
   /* init WEB server */
   Server_InitWebServer();
@@ -115,7 +114,7 @@ void setup() {
   SystemLog.AddEvent(LogLevel_Info, F("Start tasks"));
   xTaskCreatePinnedToCore(System_TaskMain, "SystemNtpOtaUpdate", 5200, NULL, 1, &Task_SystemMain, 0);                           /*function, description, stack size, parameters, priority, task handle, core*/
   ESP_ERROR_CHECK(esp_task_wdt_add(Task_SystemMain));
-  xTaskCreatePinnedToCore(System_TaskCaptureAndSendPhoto, "CaptureAndSendPhoto", 4400, NULL, 2, &Task_CapturePhotoAndSend, 0);  /*function, description, stack size, parameters, priority, task handle, core*/
+  xTaskCreatePinnedToCore(System_TaskCaptureAndSendPhoto, "CaptureAndSendPhoto", 6144, NULL, 2, &Task_CapturePhotoAndSend, 0);  /*function, description, stack size, parameters, priority, task handle, core*/
   ESP_ERROR_CHECK(esp_task_wdt_add(Task_CapturePhotoAndSend));
   xTaskCreatePinnedToCore(System_TaskWifiManagement, "WiFiManagement", 2700, NULL, 3, &Task_WiFiManagement, 0);                 /*function, description, stack size, parameters, priority, task handle, core*/
   ESP_ERROR_CHECK(esp_task_wdt_add(Task_WiFiManagement));

@@ -57,10 +57,9 @@ public:
   void Init();
   void LoadCfgFromEeprom();
 
-  void TakePicture();
   void SendPhotoToBackend();
   void SendInfoToBackend();
-  void SendLastPhotoToBackend();
+  void SendLastPhotoToBackend(bool);
   String ProcessHttpResponseCode(int);
   bool ProcessHttpResponseCodeBool(int);
   void UpdateDeviceInformation();

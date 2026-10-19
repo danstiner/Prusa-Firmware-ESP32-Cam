@@ -11,11 +11,19 @@
 
 #pragma once
 
+#include <atomic>
 #include "esp_camera.h"
 #include "esp_timer.h"
 #include "img_converters.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+
+/* A JPEG copied out of the driver. fb describes the copy; cap is the allocated size of fb.buf, which only grows. */
+/* Must stay above #include "cfg.h": cfg.h reaches WebStream.h, which holds a FrameCopy. */
+struct FrameCopy {
+  camera_fb_t fb;  ///< buf, len, width, height, format and timestamp of the copy
+  size_t cap;      ///< allocated size of fb.buf
+};
 
 #include "micro_sd.h"
 #include "log.h"
@@ -28,10 +36,21 @@
 
 class Configuration;
 
-struct PhotoExifData_t {
-  const uint8_t *header;
-  size_t len;
-  size_t offset;
+/* What the take function accepts, and how it copies */
+struct TakeOptions {
+  bool photo_check;             ///< also require byte 15 to be 0, a check verified on the OV2640 only
+  int64_t not_before_us;        ///< reject frames that started earlier, esp_timer_get_time() clock
+  uint8_t max_invalid;          ///< stop after this many invalid frames
+  bool exif;                    ///< write the EXIF header in front of the image
+  SemaphoreHandle_t dst_mutex;  ///< taken around the copy into the destination, or NULL
+};
+
+/* Result of the take function */
+enum TakeResult_enum {
+  TakeResult_Ok,            ///< the destination holds the new frame
+  TakeResult_NoFrame,       ///< the driver returned no frame
+  TakeResult_NoValidFrame,  ///< no valid, fresh frame within the limits
+  TakeResult_NoMemory,      ///< the destination could not grow; it keeps its old content
 };
 
 class Camera {
@@ -62,31 +81,29 @@ private:
   framesize_t TFrameSize;    ///< framesize_t type for camera module
   uint8_t imageExifRotation; ///< image rotation. 0 degree: value 1, 90 degree: value 6, 180 degree: value 3, 270 degree: value 8
 
-  bool CameraCaptureSuccess; ///< camera capture success
-  bool PhotoSending;         ///< photo sending
-
   /* OV2640 camera module pinout and cfg*/
   camera_config_t CameraConfig;             ///< camera configuration
-  camera_fb_t *FrameBuffer;                 ///< frame buffer
-  camera_fb_t *FrameBufferDuplicate;        ///< frame buffer duplicate
-  camera_fb_t *FrameBufferExif;             ///< frame buffer with exif data
   sensor_t* sensor;                         ///< sensor
-  String Photo;                             ///< photo in string format
-  bool StreamOnOff;                         ///< stream on/off
-  bool StreamSendingPhoto;                  ///< sending photo to Prusa Connect during stream
-  SemaphoreHandle_t frameBufferSemaphore;   ///< semaphore for frame buffer
+  std::atomic<uint32_t> StreamLastSendMs;   ///< millis() of the last stream send callback
+  std::atomic<bool> StreamEverSent;         ///< a stream send callback ran since boot
+  SemaphoreHandle_t frameBufferSemaphore;   ///< camera mutex: the driver, re-init and settings
   float StreamAverageFps;                   ///< stream average fps
   uint16_t StreamAverageSize;               ///< stream average size
-  PhotoExifData_t PhotoExifData;            ///< photo exif data
   uint8_t CameraCaptureFailedCounter;       ///< camera capture failed counter, changed only under frameBufferSemaphore
   camera_pid_t CameraType;                  ///< camera type
   String CameraName;                        ///< camera name
+  FrameCopy LastPhoto;                      ///< P: the last photo, EXIF in front; written only by the photo task (and setup() once)
+  SemaphoreHandle_t photoMutex;             ///< guards LastPhoto's buffer and length
+  int64_t CameraInitTimeUs;                 ///< when the camera was last initialised, esp_timer_get_time() clock
 
   Configuration *config;                    ///< pointer to Configuration object
   Logs *log;                                ///< pointer to Logs object
 
   void InitCameraModule();
   void ApplyCameraCfgUnlocked();
+  TakeResult_enum TakeFrame(FrameCopy &, const TakeOptions &, uint8_t *);
+  bool FrameIsValid(const camera_fb_t *, bool);
+  bool CopyFrame(FrameCopy &, camera_fb_t *, bool);
 
 public:
   Camera(Configuration*, Logs*, int8_t);
@@ -97,32 +114,20 @@ public:
   void ReinitCameraModule();
   void ReinitIfCaptureFailing();
   void GetCameraModel();
-  void CapturePhoto();
-  bool CaptureStream(camera_fb_t *);
-  void CaptureReturnFrameBuffer();
-  void SetStreamStatus(bool);
+  bool CapturePhoto();
+  bool CaptureStream(FrameCopy &, int64_t);
+  void StreamMarkSend();
   bool GetStreamStatus();
-  bool GetCameraCaptureSuccess();
 
   void StreamSetFrameSize(uint16_t);
   void StreamSetFrameFps(float);
   uint16_t StreamGetFrameAverageSize();
   float StreamGetFrameAverageFps();
   void StreamClearFrameData();
-  void StreamSetSendingPhoto(bool);
-  
-  void CopyPhoto(camera_fb_t *);
-  void CopyPhoto(String*);
-  void CopyPhoto(String*, int, int);
-  void CopyPhoto(char*, int, int);
-  int GetPhotoSize();
-  String GetPhoto();
+
   camera_fb_t *GetPhotoFb();
-  camera_fb_t* GetPhotoFbDuplicate();
-  PhotoExifData_t * GetPhotoExifData();
   framesize_t TransformFrameSizeDataType(uint8_t);
-  void SetPhotoSending(bool);
-  
+
   void SetFlashStatus(bool);
   bool GetFlashStatus();
 
