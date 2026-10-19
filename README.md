@@ -7,7 +7,7 @@ This project uses other libraries. It is necessary to install them in the Arduin
 - MCU support [arduino-ESP32 3.1.0](https://github.com/espressif/arduino-esp32)
 - ~~Library [ESPAsyncWebSrv 1.2.7](https://github.com/dvarrel/ESPAsyncWebSrv)~~ To version **1.0.3-rc1**
 - ~~Library [AsyncTCP 1.1.4](https://github.com/dvarrel/AsyncTCP)~~ To version **1.0.3-rc1**
-- Library [AsyncTCP 3.3.1](https://github.com/mathieucarbou/AsyncTCP)
+- Library [AsyncTCP 3.3.8](https://github.com/ESP32Async/AsyncTCP)
 - Library [ESPAsyncWebServer 3.4.5](https://github.com/mathieucarbou/ESPAsyncWebServer) 
 - Library [ArduinoJson 7.3.0](https://github.com/bblanchon/ArduinoJson)
 - Library [UniqueID 1.3.0](https://github.com/ricaun/ArduinoUniqueID)
