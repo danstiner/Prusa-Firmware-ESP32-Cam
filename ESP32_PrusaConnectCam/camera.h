@@ -77,7 +77,7 @@ private:
   float StreamAverageFps;                   ///< stream average fps
   uint16_t StreamAverageSize;               ///< stream average size
   PhotoExifData_t PhotoExifData;            ///< photo exif data
-  uint8_t CameraCaptureFailedCounter;       ///< camera capture failed counter
+  uint8_t CameraCaptureFailedCounter;       ///< camera capture failed counter, changed only under frameBufferSemaphore
   camera_pid_t CameraType;                  ///< camera type
   String CameraName;                        ///< camera name
 
@@ -85,6 +85,7 @@ private:
   Logs *log;                                ///< pointer to Logs object
 
   void InitCameraModule();
+  void ApplyCameraCfgUnlocked();
 
 public:
   Camera(Configuration*, Logs*, int8_t);
@@ -93,9 +94,10 @@ public:
   void ApplyCameraCfg();
   void LoadCameraCfgFromEeprom();
   void ReinitCameraModule();
+  void ReinitIfCaptureFailing();
   void GetCameraModel();
   void CapturePhoto();
-  void CaptureStream(camera_fb_t *);
+  bool CaptureStream(camera_fb_t *);
   void CaptureReturnFrameBuffer();
   void SetStreamStatus(bool);
   bool GetStreamStatus();

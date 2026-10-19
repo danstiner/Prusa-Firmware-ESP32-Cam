@@ -169,6 +169,7 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uin
   _chunked = (1 == i_http_version);
   _index = 0;
   lastAsyncRequest = 0;
+  _ended = false;
   memset(&_frame, 0, sizeof(camera_frame_t));
   camera = i_cam;
   log = i_log;
@@ -217,6 +218,10 @@ size_t AsyncJpegStreamResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * @return size_t 
  */
 size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t index) {
+  /* on HTTP/1.0 the first 0 does not end the response when the head goes out in the same call */
+  if (true == _ended) {
+    return 0;
+  }
 
   if (!_frame.fb || _frame.index == _frame.fb->len) {
     delay(1);
@@ -244,13 +249,13 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
 
     /* get frame */
     _frame.index = 0;
-    camera->CaptureStream(&_dframe);
-    _frame.fb = &_dframe;
-
-    if (_frame.fb == NULL) {
+    if (false == camera->CaptureStream(&_dframe)) {
       log->AddEvent(LogLevel_Error, F("Stream capture frame failed"));
+      _frame.fb = NULL;
+      _ended = true;
       return 0;
     }
+    _frame.fb = &_dframe;
 
     /* send boundary, also before the first part */
     size_t blen = strlen(STREAM_BOUNDARY);

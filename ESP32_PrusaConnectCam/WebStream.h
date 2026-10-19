@@ -66,6 +66,7 @@ private:
   Camera *camera;             ///< pointer to camera
   Logs *log;                  ///< pointer to logs
   camera_fb_t _dframe;        ///< camera frame
+  bool _ended;                ///< a capture failed; every later call returns 0 so the response ends
 
 public:
   AsyncJpegStreamResponse(Camera *, Logs *, uint8_t);
