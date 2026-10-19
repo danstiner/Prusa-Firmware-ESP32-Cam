@@ -68,7 +68,7 @@ private:
   camera_fb_t _dframe;        ///< camera frame
 
 public:
-  AsyncJpegStreamResponse(Camera *, Logs *);
+  AsyncJpegStreamResponse(Camera *, Logs *, uint8_t);
   ~AsyncJpegStreamResponse();
   bool _sourceValid() const;
   virtual size_t _fillBuffer(uint8_t *, size_t ) override;

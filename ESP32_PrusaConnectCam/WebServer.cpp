@@ -1273,7 +1273,7 @@ bool Server_CheckBasicAuth(AsyncWebServerRequest* request) {
    @return void
 */
 void Server_streamJpg(AsyncWebServerRequest* request) {
-  AsyncJpegStreamResponse* response = new AsyncJpegStreamResponse(&SystemCamera, &SystemLog);
+  AsyncJpegStreamResponse* response = new AsyncJpegStreamResponse(&SystemCamera, &SystemLog, request->version());
   if (!response) {
     request->send(501);
     return;
