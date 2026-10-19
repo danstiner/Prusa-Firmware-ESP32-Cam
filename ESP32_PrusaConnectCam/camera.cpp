@@ -14,6 +14,7 @@
 #include "camera.h"
 
 Camera SystemCamera(&SystemConfig, &SystemLog, FLASH_GPIO_NUM);
+PhotoRequests PhotoCaptureRequests(PHOTO_REQUEST_MAX_WAITING);
 
 /**
    @brief Init camera constructor
