@@ -434,13 +434,18 @@ void Server_InitWebServer_Icons() {
    @return none
 */
 void Server_InitWebServer_Actions() {
-  /*route for capture photo */
+  /* route for capture photo: the photo task takes it on its next tick, the answer comes when it is done */
   server.on("/action_capture", HTTP_GET, [](AsyncWebServerRequest* request) {
     SystemLog.AddEvent(LogLevel_Verbose, F("WEB server: /action_capture Take photo"));
     if (Server_CheckBasicAuth(request) == false)
       return;
-    SystemCamera.CapturePhoto();
-    request->send(200, "text/plain", "Take Photo");
+
+    uint32_t ticket = 0;
+    if (false == PhotoCaptureRequests.Request(&ticket)) {
+      request->send(503, "text/plain", "Busy");
+      return;
+    }
+    request->send(new AsyncCaptureResponse(&PhotoCaptureRequests, ticket));
   });
 
   /* route for send photo to prusa backend */

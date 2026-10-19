@@ -27,6 +27,8 @@
 #define CONSOLE_VERBOSE_DEBUG       false                   ///< enable/disable verbose debug log level for console
 #define DEVICE_HOSTNAME             "Prusa-ESP32cam"        ///< device hostname
 #define CAMERA_MAX_FAIL_CAPTURE     10                      ///< maximum count for failed capture
+#define PHOTO_REQUEST_MAX_WAITING   4                       ///< /action_capture requests that may wait for a photo at once
+#define PHOTO_REQUEST_TIMEOUT       10000                   ///< /action_capture answers after this long even without a new photo [ms]
 
 /* ------------ PRUSA BACKEND CFG  --------------*/
 #define HOST_URL_CAM_PATH           "/c/snapshot"           ///< path for sending photo to prusa connect

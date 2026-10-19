@@ -60,7 +60,7 @@ public:
   void TakePicture();
   void SendPhotoToBackend();
   void SendInfoToBackend();
-  void TakePictureAndSendToBackend();
+  void SendLastPhotoToBackend();
   String ProcessHttpResponseCode(int);
   bool ProcessHttpResponseCodeBool(int);
   void UpdateDeviceInformation();

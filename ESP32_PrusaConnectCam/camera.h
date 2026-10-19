@@ -24,6 +24,7 @@
 #include "module_templates.h"
 #include "mcu_cfg.h"
 #include "var.h"
+#include "photo_requests.h"
 
 class Configuration;
 
@@ -175,5 +176,6 @@ public:
 };
 
 extern Camera SystemCamera; ///< Camera object
+extern PhotoRequests PhotoCaptureRequests; ///< /action_capture tickets, served by the photo task
 
 /* EOF */

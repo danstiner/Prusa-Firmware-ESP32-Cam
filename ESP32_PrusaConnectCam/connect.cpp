@@ -293,14 +293,12 @@ void PrusaConnect::SendInfoToBackend() {
 }
 
 /**
- * @brief Take picture and send to backend
+ * @brief Send the photo the photo task just took to backend, and save it to SD card
  *
  * @param none
  * @return none
  */
-void PrusaConnect::TakePictureAndSendToBackend() {
-  camera->CapturePhoto();
-
+void PrusaConnect::SendLastPhotoToBackend() {
   /* check if photo was captured */
   if (camera->GetCameraCaptureSuccess() == true) {
 

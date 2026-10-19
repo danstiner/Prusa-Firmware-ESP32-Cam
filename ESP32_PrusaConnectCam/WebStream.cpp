@@ -17,6 +17,7 @@ static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" P
 static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";                             ///< boundary for stream
 static const char *STREAM_PART = "Content-Type: %s\r\nContent-Length: %u\r\n\r\n";              ///< part for stream
 static const char *JPG_CONTENT_TYPE = "image/jpeg";                                           ///< content type for jpg
+static const char *CAPTURE_BODY = "Take Photo";                                                 ///< body of the /action_capture answer
 
 /**
  * @brief Construct a new Async Buffer Response:: Async Buffer Response object
@@ -150,6 +151,59 @@ size_t AsyncFrameResponse::_content(uint8_t *buffer, size_t maxLen, size_t index
     fb = nullptr;
   }
   return maxLen;
+}
+
+/**
+ * @brief Construct the /action_capture answer: it waits, without blocking the web server, for the photo task to serve the ticket
+ *
+ * @param i_requests - ticket pair
+ * @param i_ticket - this request's ticket
+ */
+AsyncCaptureResponse::AsyncCaptureResponse(PhotoRequests *i_requests, uint32_t i_ticket) {
+  _callback = nullptr;
+  _code = 200;
+  _contentType = "text/plain";
+  _contentLength = strlen(CAPTURE_BODY);
+  _sendContentLength = true;
+  _chunked = false;
+  requests = i_requests;
+  ticket = i_ticket;
+  start_ms = millis();
+  done = false;
+  _index = 0;
+}
+
+/**
+ * @brief Check if source is valid
+ *
+ * @return bool
+ */
+bool AsyncCaptureResponse::_sourceValid() const {
+  return true;
+}
+
+/**
+ * @brief Fill buffer: "try again" until the photo is done or PHOTO_REQUEST_TIMEOUT passed; the library retries on its 500 ms poll
+ *
+ * @param buf
+ * @param maxLen
+ * @return size_t
+ */
+size_t AsyncCaptureResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
+  if (false == done) {
+    if ((false == requests->Done(ticket)) && ((millis() - start_ms) < PHOTO_REQUEST_TIMEOUT)) {
+      return RESPONSE_TRY_AGAIN;
+    }
+    done = true;
+  }
+
+  size_t len = _contentLength - _index;
+  if (len > maxLen) {
+    len = maxLen;
+  }
+  memcpy(buf, CAPTURE_BODY + _index, len);
+  _index += len;
+  return len;
 }
 
 /**

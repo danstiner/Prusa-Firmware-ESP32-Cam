@@ -23,6 +23,7 @@
 #include "var.h"
 #include "log.h"
 #include "camera.h"
+#include "photo_requests.h"
 
 class Camera;
 
@@ -56,6 +57,20 @@ public:
   bool _sourceValid() const;
   virtual size_t _fillBuffer(uint8_t *, size_t) override;
   size_t _content(uint8_t *, size_t, size_t);
+};
+
+class AsyncCaptureResponse : public AsyncAbstractResponse {
+private:
+  PhotoRequests *requests;  ///< ticket source
+  uint32_t ticket;          ///< ticket this request waits for
+  uint32_t start_ms;        ///< when the request arrived
+  bool done;                ///< the photo is done, or the wait timed out
+  size_t _index;            ///< bytes of the body sent
+
+public:
+  AsyncCaptureResponse(PhotoRequests *, uint32_t);
+  bool _sourceValid() const;
+  virtual size_t _fillBuffer(uint8_t *, size_t) override;
 };
 
 class AsyncJpegStreamResponse : public AsyncAbstractResponse {

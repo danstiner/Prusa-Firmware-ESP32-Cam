@@ -505,6 +505,7 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   while (1) {
+    bool upload = false;
     if (Connect.CheckSendingIntervalExpired()) {
       Connect.SetSendingIntervalCounter(0);
       /* send network information to backend */
@@ -512,18 +513,27 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
         SystemLog.AddEvent(LogLevel_Verbose, F("Task photo processing. Start sending info"));
         esp_task_wdt_reset();
         Connect.SendInfoToBackend();
-      }
-
-      /* send photo to backend*/
-      if ((WL_CONNECTED == WiFi.status()) && (false == FirmwareUpdate.Processing)) {
-        SystemLog.AddEvent(LogLevel_Verbose, F("Task photo processing. Start sending photo"));
-        esp_task_wdt_reset();
-        Connect.TakePictureAndSendToBackend();
+        upload = true;
       }
 
     } else {
       /* update counter */
       Connect.IncreaseSendingIntervalCounter();
+    }
+
+    /* one photo serves an upload due and every /action_capture request taken before it starts */
+    uint32_t requested = PhotoCaptureRequests.Pending();
+    if ((true == upload) || (true == PhotoCaptureRequests.HasWaiting(requested))) {
+      esp_task_wdt_reset();
+      SystemCamera.CapturePhoto();
+      PhotoCaptureRequests.ServeUpTo(requested);
+
+      /* send photo to backend*/
+      if (true == upload) {
+        SystemLog.AddEvent(LogLevel_Verbose, F("Task photo processing. Start sending photo"));
+        esp_task_wdt_reset();
+        Connect.SendLastPhotoToBackend();
+      }
     }
     
     SystemLog.AddEvent(LogLevel_Verbose, F("Photo processing task. Stack free size: "), String(uxTaskGetStackHighWaterMark(NULL)) + "B");
