@@ -149,15 +149,11 @@ bool PrusaConnect::SendDataToBackend(String *i_data, int i_data_length, String i
         }
 
         /* sending photo */
-        for (size_t i = 0; i < fbLen; i += PHOTO_FRAGMENT_SIZE) {
-          if ((i + PHOTO_FRAGMENT_SIZE) < fbLen) {
-            sendet_data += client.write(fbBuf, PHOTO_FRAGMENT_SIZE);
-            fbBuf += PHOTO_FRAGMENT_SIZE;
-
-          } else if ((fbLen % PHOTO_FRAGMENT_SIZE) > 0) {
-            size_t remainder = fbLen % PHOTO_FRAGMENT_SIZE;
-            sendet_data += client.write(fbBuf, remainder);
-          }
+        while (fbLen > 0) {
+          size_t fragment = (fbLen > PHOTO_FRAGMENT_SIZE) ? PHOTO_FRAGMENT_SIZE : fbLen;
+          sendet_data += client.write(fbBuf, fragment);
+          fbBuf += fragment;
+          fbLen -= fragment;
         }
         client.println("\r\n");
 
