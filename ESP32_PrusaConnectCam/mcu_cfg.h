@@ -32,6 +32,8 @@
 #define CAMERA_SETTLE_TIME          300                     ///< frames that start sooner after a camera init are skipped [ms]
 #define CAMERA_TAKE_RETRY_BUDGET    1000                    ///< a take stops handing frames back after this long [ms]
 #define CAMERA_TAKE_MAX_INVALID     5                       ///< a take stops after this many invalid frames
+#define PHOTO_COPY_LOCK_TIMEOUT     50                      ///< a download waits this long for the photo lock [ms]
+#define SAVED_PHOTO_MAX_DOWNLOADS   2                       ///< /saved-photo.jpg downloads at once
 #define HTTP_CLIENT_SILENT_TIMEOUT  10000                   ///< a stream viewer or download without a send callback this long may be replaced [ms]
 
 /* ------------ PRUSA BACKEND CFG  --------------*/

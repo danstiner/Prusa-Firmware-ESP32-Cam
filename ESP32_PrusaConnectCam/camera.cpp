@@ -660,6 +660,35 @@ camera_fb_t* Camera::GetPhotoFb() {
 }
 
 /**
+   @brief Copy the last photo for a download. The copy is in PSRAM and belongs to the caller (free()).
+   @param uint8_t** o_buf - the copy
+   @param size_t* o_len - its length
+   @return PhotoCopyResult_enum
+*/
+PhotoCopyResult_enum Camera::CopyLastPhoto(uint8_t **o_buf, size_t *o_len) {
+  /* the photo task holds the lock only while it copies a new photo in */
+  if (pdTRUE != xSemaphoreTake(photoMutex, pdMS_TO_TICKS(PHOTO_COPY_LOCK_TIMEOUT))) {
+    return PhotoCopy_Busy;
+  }
+
+  PhotoCopyResult_enum result = PhotoCopy_Ok;
+  if (0 == LastPhoto.fb.len) {
+    result = PhotoCopy_Empty;
+  } else {
+    uint8_t *copy = (uint8_t *)heap_caps_malloc(LastPhoto.fb.len, MALLOC_CAP_SPIRAM);
+    if (NULL == copy) {
+      result = PhotoCopy_NoMemory;
+    } else {
+      memcpy(copy, LastPhoto.fb.buf, LastPhoto.fb.len);
+      *o_buf = copy;
+      *o_len = LastPhoto.fb.len;
+    }
+  }
+  xSemaphoreGive(photoMutex);
+  return result;
+}
+
+/**
    @brief Set Photo Quality
    @param uint8_t - photo quality
    @return none

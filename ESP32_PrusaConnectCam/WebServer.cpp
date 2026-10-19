@@ -14,6 +14,8 @@
 #include "Certificate.h"
 
 AsyncWebServer server(WEB_SERVER_PORT);
+static ResponseSlots<AsyncWebServerRequest> DownloadSlots(SAVED_PHOTO_MAX_DOWNLOADS, HTTP_CLIENT_SILENT_TIMEOUT);  ///< /saved-photo.jpg downloads in progress
+static_assert(SAVED_PHOTO_MAX_DOWNLOADS <= ResponseSlots<AsyncWebServerRequest>::MaxSlots, "SAVED_PHOTO_MAX_DOWNLOADS is larger than ResponseSlots::MaxSlots");
 
 /**
    @brief Load configuration from EEPROM
@@ -34,20 +36,40 @@ void Server_LoadCfg() {
 void Server_InitWebServer() {
   SystemLog.AddEvent(LogLevel_Info, F("Starting init WEB server"));
 
-  /* route for get last capture photo */
+  /* route for get last capture photo: each download sends its own copy, so a new photo never changes it */
   server.on("/saved-photo.jpg", HTTP_GET, [](AsyncWebServerRequest* request) {
     SystemLog.AddEvent(LogLevel_Verbose, F("WEB server: get photo"));
     if (Server_CheckBasicAuth(request) == false)
       return;
 
-    camera_fb_t *photo = SystemCamera.GetPhotoFb();
-    if (0 == photo->len) {
-      request->send(404, "text/plain", "Photo not found!");
+    int8_t slot = DownloadSlots.Acquire(request, millis());
+    if (slot < 0) {
+      Server_SendBusy(request, "Too many downloads");
       return;
     }
 
-    SystemLog.AddEvent(LogLevel_Verbose, "Photo size: " + String(photo->len) + " bytes");
-    request->send(200, "image/jpg", photo->buf, photo->len);
+    uint8_t *copy = NULL;
+    size_t len = 0;
+    PhotoCopyResult_enum result = SystemCamera.CopyLastPhoto(&copy, &len);
+    if (PhotoCopy_Ok != result) {
+      DownloadSlots.Cancel(slot);
+      if (PhotoCopy_Empty == result) {
+        request->send(404, "text/plain", "Photo not found!");
+      } else {
+        Server_SendBusy(request, "Photo busy");
+      }
+      return;
+    }
+
+    AsyncBufferResponse *response = new AsyncBufferResponse(copy, len, "image/jpeg", &DownloadSlots);
+    if (NULL == response) {
+      free(copy);
+      DownloadSlots.Cancel(slot);
+      Server_SendBusy(request, "Photo busy");
+      return;
+    }
+    DownloadSlots.Bind(slot, response);
+    request->send(response);
   });
 
   /* route to jquery */
@@ -416,7 +438,7 @@ void Server_InitWebServer_Actions() {
 
     uint32_t ticket = 0;
     if (false == PhotoCaptureRequests.Request(&ticket)) {
-      request->send(503, "text/plain", "Busy");
+      Server_SendBusy(request, "Busy");
       return;
     }
     request->send(new AsyncCaptureResponse(&PhotoCaptureRequests, ticket));
@@ -1244,6 +1266,18 @@ bool Server_CheckBasicAuth(AsyncWebServerRequest* request) {
   }
 
   return true;
+}
+
+/**
+   @brief Answer 503 with Retry-After: 1
+   @param AsyncWebServerRequest* request
+   @param const char* i_msg - body
+   @return void
+*/
+void Server_SendBusy(AsyncWebServerRequest* request, const char* i_msg) {
+  AsyncWebServerResponse* response = request->beginResponse(503, "text/plain", i_msg);
+  response->addHeader("Retry-After", "1");
+  request->send(response);
 }
 
 /**

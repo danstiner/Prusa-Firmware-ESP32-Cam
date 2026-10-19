@@ -22,11 +22,12 @@ static const char *CAPTURE_BODY = "Take Photo";                                 
 /**
  * @brief Construct a new Async Buffer Response:: Async Buffer Response object
  * 
- * @param buf 
- * @param len 
- * @param contentType 
+ * @param buf - the data to send; the response frees it
+ * @param len - length of the data
+ * @param contentType - the Content-Type header
+ * @param slots - the slots this response releases, or NULL
  */
-AsyncBufferResponse::AsyncBufferResponse(uint8_t *buf, size_t len, const char *contentType) {
+AsyncBufferResponse::AsyncBufferResponse(uint8_t *buf, size_t len, const char *contentType, ResponseSlots<AsyncWebServerRequest> *slots) {
   _buf = buf;
   _len = len;
   _callback = nullptr;
@@ -34,15 +35,19 @@ AsyncBufferResponse::AsyncBufferResponse(uint8_t *buf, size_t len, const char *c
   _contentLength = _len;
   _contentType = contentType;
   _index = 0;
+  _slots = slots;
 }
 
 /**
- * @brief Destroy the Async Buffer Response:: Async Buffer Response object
+ * @brief Destroy the Async Buffer Response:: Async Buffer Response object: free the data and the slot
  * 
  */
 AsyncBufferResponse::~AsyncBufferResponse() {
   if (_buf != nullptr) {
     free(_buf);
+  }
+  if (_slots != nullptr) {
+    _slots->Release(this);
   }
 }
 
@@ -63,6 +68,9 @@ bool AsyncBufferResponse::_sourceValid() const {
  * @return size_t 
  */
 size_t AsyncBufferResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
+  if (_slots != nullptr) {
+    _slots->Touch(this, millis());
+  }
   size_t ret = _content(buf, maxLen, _index);
   if (ret != RESPONSE_TRY_AGAIN) {
     _index += ret;
@@ -71,7 +79,7 @@ size_t AsyncBufferResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
 }
 
 /**
- * @brief Content
+ * @brief Content. The data lives until the response is destroyed, so _sourceValid() stays true until the last ACK.
  * 
  * @param buffer 
  * @param maxLen 
@@ -79,12 +87,12 @@ size_t AsyncBufferResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * @return size_t 
  */
 size_t AsyncBufferResponse::_content(uint8_t *buffer, size_t maxLen, size_t index) {
-  memcpy(buffer, _buf + index, maxLen);
-  if ((index + maxLen) == _len) {
-    free(_buf);
-    _buf = nullptr;
+  size_t len = _len - index;
+  if (len > maxLen) {
+    len = maxLen;
   }
-  return maxLen;
+  memcpy(buffer, _buf + index, len);
+  return len;
 }
 
 /**

@@ -23,18 +23,20 @@
 #include "var.h"
 #include "log.h"
 #include "camera.h"
+#include "response_slots.h"
 #include "photo_requests.h"
 
 class Camera;
 
 class AsyncBufferResponse : public AsyncAbstractResponse {
 private:
-  uint8_t *_buf;    ///< pointer to frame buffer
-  size_t _len;      ///< length of frame buffer
-  size_t _index;    ///< index of frame 
+  uint8_t *_buf;                                  ///< the data to send, freed with the response
+  size_t _len;                                    ///< length of the data
+  size_t _index;                                  ///< bytes sent so far
+  ResponseSlots<AsyncWebServerRequest> *_slots;   ///< the slots this response holds one of, or NULL
 
 public:
-  AsyncBufferResponse(uint8_t *, size_t, const char *);
+  AsyncBufferResponse(uint8_t *, size_t, const char *, ResponseSlots<AsyncWebServerRequest> *);
   ~AsyncBufferResponse();
   bool _sourceValid() const;
   virtual size_t _fillBuffer(uint8_t *, size_t) override;

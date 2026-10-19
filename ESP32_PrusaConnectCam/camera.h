@@ -53,6 +53,14 @@ enum TakeResult_enum {
   TakeResult_NoMemory,      ///< the destination could not grow; it keeps its old content
 };
 
+/* Result of copying the last photo for a download */
+enum PhotoCopyResult_enum {
+  PhotoCopy_Ok,        ///< the copy is ready
+  PhotoCopy_Empty,     ///< there is no photo yet
+  PhotoCopy_Busy,      ///< the photo was being written for longer than PHOTO_COPY_LOCK_TIMEOUT
+  PhotoCopy_NoMemory,  ///< no PSRAM for the copy
+};
+
 class Camera {
 private:
   uint8_t PhotoQuality;      ///< photo quality
@@ -126,6 +134,7 @@ public:
   void StreamClearFrameData();
 
   camera_fb_t *GetPhotoFb();
+  PhotoCopyResult_enum CopyLastPhoto(uint8_t **, size_t *);
   framesize_t TransformFrameSizeDataType(uint8_t);
 
   void SetFlashStatus(bool);
