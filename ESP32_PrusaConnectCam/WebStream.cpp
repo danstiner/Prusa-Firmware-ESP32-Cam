@@ -167,6 +167,7 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log) {
   _chunked = true;
   _index = 0;
   lastAsyncRequest = 0;
+  _ended = false;
   memset(&_frame, 0, sizeof(camera_frame_t));
   camera = i_cam;
   log = i_log;
@@ -215,6 +216,10 @@ size_t AsyncJpegStreamResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * @return size_t 
  */
 size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t index) {
+  /* a failed capture ended the stream: every later call returns 0 and does not capture again */
+  if (true == _ended) {
+    return 0;
+  }
 
   if (!_frame.fb || _frame.index == _frame.fb->len) {
     delay(1);
@@ -242,13 +247,13 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
 
     /* get frame */
     _frame.index = 0;
-    camera->CaptureStream(&_dframe);
-    _frame.fb = &_dframe;
-
-    if (_frame.fb == NULL) {
+    if (false == camera->CaptureStream(&_dframe)) {
       log->AddEvent(LogLevel_Error, F("Stream capture frame failed"));
+      _frame.fb = NULL;
+      _ended = true;
       return 0;
     }
+    _frame.fb = &_dframe;
 
     /* send boundary */
     size_t blen = 0;

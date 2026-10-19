@@ -505,6 +505,9 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   while (1) {
+    /* re-initialise the camera after too many failed captures, also when they returned no frame at all */
+    SystemCamera.ReinitIfCaptureFailing();
+
     if (Connect.CheckSendingIntervalExpired()) {
       Connect.SetSendingIntervalCounter(0);
       /* send network information to backend */

@@ -291,15 +291,30 @@ bool Camera::GetFlashStatus() {
 }
 
 /**
-   @brief Function set camer acfg
+   @brief Function set camera config. Waits for any frame or photo being taken, so the sensor exists.
    @param none
    @return none
 */
 void Camera::ApplyCameraCfg() {
+  xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY);
+  ApplyCameraCfgUnlocked();
+  xSemaphoreGive(frameBufferSemaphore);
+}
+
+/**
+   @brief Apply the camera configuration to the sensor. The caller holds frameBufferSemaphore.
+   @param none
+   @return none
+*/
+void Camera::ApplyCameraCfgUnlocked() {
   log->AddEvent(LogLevel_Info, F("Set camera CFG"));
 
   /* sensor configuration */
   sensor = esp_camera_sensor_get();
+  if (NULL == sensor) {
+    log->AddEvent(LogLevel_Error, F("Camera sensor is NULL"));
+    return;
+  }
   sensor->set_brightness(sensor, brightness);         // -2 to 2
   sensor->set_contrast(sensor, contrast);             // -2 to 2
   sensor->set_saturation(sensor, saturation);         // -2 to 2
@@ -330,13 +345,29 @@ void Camera::ApplyCameraCfg() {
    @return none
 */
 void Camera::ReinitCameraModule() {
+  /* no frame or photo may be taken while the driver is gone */
+  xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY);
   esp_err_t err = esp_camera_deinit();
   if (err != ESP_OK) {
     log->AddEvent(LogLevel_Warning, F("Camera error deinit camera module. Error: "), String(err, HEX));
   }
   delay(100);
   InitCameraModule();
-  ApplyCameraCfg();
+  ApplyCameraCfgUnlocked();
+  CameraCaptureFailedCounter = 0;
+  xSemaphoreGive(frameBufferSemaphore);
+}
+
+/**
+   @brief Re-initialise the camera after more than CAMERA_MAX_FAIL_CAPTURE failed captures in a row. Called on every photo task tick.
+   @param none
+   @return none
+*/
+void Camera::ReinitIfCaptureFailing() {
+  if (CameraCaptureFailedCounter > CAMERA_MAX_FAIL_CAPTURE) {
+    log->AddEvent(LogLevel_Error, F("Camera capture failed! photo max attempts"));
+    ReinitCameraModule();
+  }
 }
 
 /**
@@ -469,29 +500,22 @@ void Camera::CapturePhoto() {
       xSemaphoreGive(frameBufferSemaphore);
     }
   }
-
-  /* Reinit camera module if photo capture failed */
-  if (CameraCaptureFailedCounter > CAMERA_MAX_FAIL_CAPTURE) { 
-    log->AddEvent(LogLevel_Error, F("Camera capture failed! photo max attempts"));
-    CameraCaptureFailedCounter = 0;
-    ReinitCameraModule();
-  }
 }
 
 /**
    @brief Capture Stream
    @param camera_fb_t * - pointer to camera_fb_t
-   @return none
+   @return bool - false when no frame could be taken; the stream then ends
 */
-void Camera::CaptureStream(camera_fb_t* i_buf) {
+bool Camera::CaptureStream(camera_fb_t* i_buf) {
   if (xSemaphoreTake(frameBufferSemaphore, portMAX_DELAY)) {
     do {
       /* capture final photo */
       FrameBuffer = esp_camera_fb_get();
       if (!FrameBuffer) {
         log->AddEvent(LogLevel_Error, F("Camera capture failed! stream"));
-        i_buf = NULL;
-        return;
+        xSemaphoreGive(frameBufferSemaphore);
+        return false;
       }
 
       /* check if photo is correctly saved */
@@ -528,7 +552,8 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
         FrameBufferExif->buf = (uint8_t*)heap_caps_malloc(totalSize, MALLOC_CAP_SPIRAM);
         if (FrameBufferExif->buf == NULL) {
           log->AddEvent(LogLevel_Error, F("Failed to allocate memory for EXIF buffer"));
-          return;
+          xSemaphoreGive(frameBufferSemaphore);
+          return false;
         }
 
         /* copy the EXIF data to the buffer */
@@ -603,7 +628,9 @@ void Camera::CaptureStream(camera_fb_t* i_buf) {
     }
 
     xSemaphoreGive(frameBufferSemaphore);
+    return true;
   }
+  return false;
 }
 
 /**
