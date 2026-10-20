@@ -112,7 +112,7 @@ void Camera::InitCameraModule() {
 
   CameraConfig.frame_size = TFrameSize;             /* FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA */
   CameraConfig.jpeg_quality = PhotoQuality;         /* 10-63 lower number means higher quality */
-  CameraConfig.fb_count = 1;                        /* picture frame buffer alocation */
+  CameraConfig.fb_count = CAMERA_FB_COUNT;          /* driver frame buffers, set per board */
   CameraConfig.grab_mode = CAMERA_GRAB_LATEST;      /* CAMERA_GRAB_WHEN_EMPTY or CAMERA_GRAB_LATEST */
 #if (true == ENABLE_PSRAM)
   CameraConfig.fb_location = CAMERA_FB_IN_PSRAM;    /* CAMERA_FB_IN_PSRAM or CAMERA_FB_IN_DRAM  */

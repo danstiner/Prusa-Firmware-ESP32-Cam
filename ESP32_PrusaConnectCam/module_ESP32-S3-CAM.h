@@ -58,6 +58,7 @@
 #define BOARD_NAME                  F("ESP32-S3-CAM") ///< Board name
 #define ENABLE_BROWN_OUT_DETECTION  false   ///< Enable brown out detection
 #define ENABLE_PSRAM                true    ///< Enable PSRAM   
+#define CAMERA_FB_COUNT             2       ///< driver frame buffers: one fills while the other holds the newest frame
 
 /* --------------- OTA UPDATE CFG  --------------*/
 #define OTA_UPDATE_FW_FILE          PSTR("esp32-s3-cam.bin") ///< OTA update firmware file name

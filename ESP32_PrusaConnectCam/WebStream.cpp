@@ -289,18 +289,12 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
 
   /* the previous frame is with TCP entirely: take the next one */
   if ((0 == _jpg.fb.len) || (_sent == _jpg.fb.len)) {
-    delay(1);
-
     if (index && _jpg.fb.len) {
       uint64_t end = (uint64_t)micros();
       int fp = (end - lastAsyncRequest) / 1000;
       float fps = 1000.0 / fp;
-      char buf[50] = { '\0' };
       camera->StreamSetFrameSize(_jpg.fb.len / 1024);
       camera->StreamSetFrameFps(fps);
-      ////sprintf(buf, "Size: %uKB, Time: %ums (%.1f fps)", _jpg.fb.len / 1024, fp, fps);
-      sprintf(buf, "Size: %uKB, FPS: %.1f", _jpg.fb.len / 1024, fps);
-      Serial.println(buf);
       lastAsyncRequest = end;
     }
 
@@ -336,7 +330,6 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
 
     memcpy(buffer, _jpg.fb.buf, hlen);
     _sent += hlen;
-    delay(1);
     return maxLen;
   }
 
@@ -346,7 +339,6 @@ size_t AsyncJpegStreamResponse::_content(uint8_t *buffer, size_t maxLen, size_t 
     maxLen = available;
   }
 
-  delay(1);
   memcpy(buffer, _jpg.fb.buf + _sent, maxLen);
   _sent += maxLen;
   return maxLen;

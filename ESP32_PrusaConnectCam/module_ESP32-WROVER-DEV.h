@@ -48,6 +48,7 @@
 #define BOARD_NAME                  F("ESP32-WROVER-DEV") ///< Board name
 #define ENABLE_BROWN_OUT_DETECTION  true   ///< Enable brown out detection
 #define ENABLE_PSRAM                true   ///< Enable PSRAM   
+#define CAMERA_FB_COUNT             1       ///< driver frame buffers; 2 is unmeasured on the classic ESP32
 
 /* --------------- OTA UPDATE CFG  --------------*/
 #define OTA_UPDATE_FW_FILE          PSTR("ESP32_WROVERDEV.bin") ///< OTA update firmware file name
