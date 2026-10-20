@@ -80,9 +80,10 @@ private:
   Camera *camera;             ///< pointer to camera
   Logs *log;                  ///< pointer to logs
   bool _ended;                ///< a capture failed; every later call returns 0 so the response ends
+  ResponseSlots<AsyncWebServerRequest> *_slots;  ///< the viewer slots this response holds one of
 
 public:
-  AsyncJpegStreamResponse(Camera *, Logs *, uint8_t);
+  AsyncJpegStreamResponse(Camera *, Logs *, uint8_t, ResponseSlots<AsyncWebServerRequest> *);
   ~AsyncJpegStreamResponse();
   bool _sourceValid() const;
   virtual size_t _fillBuffer(uint8_t *, size_t ) override;

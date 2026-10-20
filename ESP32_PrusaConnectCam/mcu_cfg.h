@@ -35,6 +35,7 @@
 #define PHOTO_COPY_LOCK_TIMEOUT     50                      ///< a download waits this long for the photo lock [ms]
 #define SAVED_PHOTO_MAX_DOWNLOADS   2                       ///< /saved-photo.jpg downloads at once
 #define HTTP_CLIENT_SILENT_TIMEOUT  10000                   ///< a stream viewer or download without a send callback this long may be replaced [ms]
+#define STREAM_MAX_VIEWERS          2                       ///< /stream.mjpg viewers at once, at most 2 (the ResponseSlots capacity)
 
 /* ------------ PRUSA BACKEND CFG  --------------*/
 #define HOST_URL_CAM_PATH           "/c/snapshot"           ///< path for sending photo to prusa connect

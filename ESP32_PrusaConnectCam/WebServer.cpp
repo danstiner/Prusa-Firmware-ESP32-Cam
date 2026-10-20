@@ -16,6 +16,8 @@
 AsyncWebServer server(WEB_SERVER_PORT);
 static ResponseSlots<AsyncWebServerRequest> DownloadSlots(SAVED_PHOTO_MAX_DOWNLOADS, HTTP_CLIENT_SILENT_TIMEOUT);  ///< /saved-photo.jpg downloads in progress
 static_assert(SAVED_PHOTO_MAX_DOWNLOADS <= ResponseSlots<AsyncWebServerRequest>::MaxSlots, "SAVED_PHOTO_MAX_DOWNLOADS is larger than ResponseSlots::MaxSlots");
+static ResponseSlots<AsyncWebServerRequest> ViewerSlots(STREAM_MAX_VIEWERS, HTTP_CLIENT_SILENT_TIMEOUT);  ///< /stream.mjpg viewers
+static_assert(STREAM_MAX_VIEWERS <= ResponseSlots<AsyncWebServerRequest>::MaxSlots, "STREAM_MAX_VIEWERS is larger than ResponseSlots::MaxSlots");
 
 /**
    @brief Load configuration from EEPROM
@@ -1286,11 +1288,20 @@ void Server_SendBusy(AsyncWebServerRequest* request, const char* i_msg) {
    @return void
 */
 void Server_streamJpg(AsyncWebServerRequest* request) {
-  AsyncJpegStreamResponse* response = new AsyncJpegStreamResponse(&SystemCamera, &SystemLog, request->version());
+  /* at most STREAM_MAX_VIEWERS viewers; a viewer silent for HTTP_CLIENT_SILENT_TIMEOUT is replaced */
+  int8_t slot = ViewerSlots.Acquire(request, millis());
+  if (slot < 0) {
+    Server_SendBusy(request, "Stream busy");
+    return;
+  }
+
+  AsyncJpegStreamResponse* response = new AsyncJpegStreamResponse(&SystemCamera, &SystemLog, request->version(), &ViewerSlots);
   if (!response) {
+    ViewerSlots.Cancel(slot);
     request->send(501);
     return;
   }
+  ViewerSlots.Bind(slot, response);
   response->addHeader("Access-Control-Allow-Origin", "*");
   request->send(response);
 }

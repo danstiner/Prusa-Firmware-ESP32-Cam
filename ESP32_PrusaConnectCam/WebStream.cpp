@@ -220,8 +220,9 @@ size_t AsyncCaptureResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * @param i_cam 
  * @param i_log 
  * @param i_http_version - request->version(): 1 for HTTP/1.1, 0 for HTTP/1.0
+ * @param i_slots - the viewer slots this response holds one of
  */
-AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uint8_t i_http_version) {
+AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uint8_t i_http_version, ResponseSlots<AsyncWebServerRequest> *i_slots) {
   _callback = nullptr;
   _code = 200;
   _contentLength = 0;
@@ -237,6 +238,7 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uin
   memset(&_jpg, 0, sizeof(_jpg));
   camera = i_cam;
   log = i_log;
+  _slots = i_slots;
   camera->StreamMarkSend();
 }
 
@@ -246,6 +248,7 @@ AsyncJpegStreamResponse::AsyncJpegStreamResponse(Camera *i_cam, Logs *i_log, uin
  */
 AsyncJpegStreamResponse::~AsyncJpegStreamResponse() {
   free(_jpg.fb.buf);
+  _slots->Release(this);
 }
 
 /**
@@ -265,6 +268,7 @@ bool AsyncJpegStreamResponse::_sourceValid() const {
  * @return size_t 
  */
 size_t AsyncJpegStreamResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
+  _slots->Touch(this, millis());
   size_t ret = _content(buf, maxLen, _index);
   if (ret != RESPONSE_TRY_AGAIN) {
     _index += ret;
