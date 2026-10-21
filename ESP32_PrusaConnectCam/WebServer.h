@@ -53,6 +53,7 @@ void Server_handleNotFound(AsyncWebServerRequest *);
 String Server_GetJsonData();
 bool Server_CheckBasicAuth(AsyncWebServerRequest *);
 void Server_SendBusy(AsyncWebServerRequest *, const char *);
+void Server_RaiseSendBuffer(AsyncWebServerRequest *);
 
 void Server_streamJpg(AsyncWebServerRequest *);
 

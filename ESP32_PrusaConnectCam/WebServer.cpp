@@ -12,6 +12,8 @@
 
 #include "WebServer.h"
 #include "Certificate.h"
+#include "lwip/tcp.h"
+#include "lwip/tcpip.h"
 
 AsyncWebServer server(WEB_SERVER_PORT);
 static ResponseSlots<AsyncWebServerRequest> DownloadSlots(SAVED_PHOTO_MAX_DOWNLOADS, HTTP_CLIENT_SILENT_TIMEOUT);  ///< /saved-photo.jpg downloads in progress
@@ -1282,6 +1284,38 @@ void Server_SendBusy(AsyncWebServerRequest* request, const char* i_msg) {
   request->send(response);
 }
 
+/* send space a stream connection gets: three times lwIP's TCP_SND_BUF in all. At four times, lwIP's send queue
+   (TCP_SND_QUEUELEN segments) fills before the send space does, tcp_write fails, and ESPAsyncWebServer 3.4.5 ignores the short write. */
+#define STREAM_SEND_BUFFER_EXTRA (2 * TCP_SND_BUF)
+#define STREAM_SEND_BUFFER_TOTAL (TCP_SND_BUF + STREAM_SEND_BUFFER_EXTRA)
+/* queue segments left free for partly filled segments: each of the at most three writes in flight can leave one */
+#define STREAM_SEND_QUEUE_SPARE 4
+static_assert(STREAM_SEND_BUFFER_TOTAL <= (tcpwnd_size_t)(~(tcpwnd_size_t)0), "the larger send space must fit tcpwnd_size_t");
+static_assert(((STREAM_SEND_BUFFER_TOTAL + TCP_MSS - 1) / TCP_MSS) + STREAM_SEND_QUEUE_SPARE <= TCP_SND_QUEUELEN, "the larger send space must leave lwIP's send queue room for partly filled segments, or tcp_write fails and ESPAsyncWebServer drops the data");
+
+/**
+   @brief Give a stream connection three times lwIP's default send space. lwIP gives each connection
+          TCP_SND_BUF (four segments) although its queue holds TCP_SND_QUEUELEN segments, and
+          ESPAsyncWebServer writes again only when the data in flight is no more than the free send
+          space, so without this a viewer keeps between about 2.9 and 5.7 KB in flight. lwIP has no
+          call to change this per connection, so this raises the pcb's snd_buf before anything is
+          sent; ACKs add back what they free, as for any connection. Three times still leaves the
+          queue room for partial segments.
+   @param AsyncWebServerRequest* request
+   @return void
+*/
+void Server_RaiseSendBuffer(AsyncWebServerRequest* request) {
+#if LWIP_TCPIP_CORE_LOCKING
+  AsyncClient* client = request->client();
+  LOCK_TCPIP_CORE();
+  tcp_pcb* pcb = (NULL != client) ? client->pcb() : NULL;
+  if (NULL != pcb) {
+    pcb->snd_buf += STREAM_SEND_BUFFER_EXTRA;
+  }
+  UNLOCK_TCPIP_CORE();
+#endif
+}
+
 /**
    @brief Stream JPG image from camera
    @param AsyncWebServerRequest - request
@@ -1302,6 +1336,7 @@ void Server_streamJpg(AsyncWebServerRequest* request) {
     return;
   }
   ViewerSlots.Bind(slot, response);
+  Server_RaiseSendBuffer(request);
   response->addHeader("Access-Control-Allow-Origin", "*");
   request->send(response);
 }
