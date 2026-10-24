@@ -1337,6 +1337,7 @@ void Server_streamJpg(AsyncWebServerRequest* request) {
   }
   ViewerSlots.Bind(slot, response);
   Server_RaiseSendBuffer(request);
+  TcpRetransmit_Watch(request->client());
   response->addHeader("Access-Control-Allow-Origin", "*");
   request->send(response);
 }

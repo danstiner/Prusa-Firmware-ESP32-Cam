@@ -29,6 +29,7 @@
 #include "jquery.h"
 #include "system.h"
 #include "connect.h"
+#include "tcp_retransmit.h"
 #include "wifi_mngt.h"
 #include "WebStream.h"
 #include "ExternalTemperatureSensor.h"

@@ -36,6 +36,9 @@
 #define SAVED_PHOTO_MAX_DOWNLOADS   2                       ///< /saved-photo.jpg downloads at once
 #define HTTP_CLIENT_SILENT_TIMEOUT  10000                   ///< a stream viewer or download without a send callback this long may be replaced [ms]
 #define STREAM_MAX_VIEWERS          2                       ///< /stream.mjpg viewers at once, at most 2 (the ResponseSlots capacity)
+#define TCP_EARLY_RETRANSMIT        true                    ///< stream connections retransmit a lost segment after one duplicate ACK, see tcp_retransmit.h
+#define TCP_EARLY_RETRANSMIT_WAIT   20                      ///< no progress this long after a duplicate ACK before that retransmit [ms]
+#define TCP_EARLY_RETRANSMIT_CHECK  10                      ///< how often the watched stream connections are checked [ms]
 
 /* ------------ PRUSA BACKEND CFG  --------------*/
 #define HOST_URL_CAM_PATH           "/c/snapshot"           ///< path for sending photo to prusa connect
