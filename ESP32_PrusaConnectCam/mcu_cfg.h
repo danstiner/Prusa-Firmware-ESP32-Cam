@@ -27,6 +27,9 @@
 #define CONSOLE_VERBOSE_DEBUG       false                   ///< enable/disable verbose debug log level for console
 #define DEVICE_HOSTNAME             "Prusa-ESP32cam"        ///< device hostname
 #define CAMERA_MAX_FAIL_CAPTURE     10                      ///< maximum count for failed capture
+#define TCP_EARLY_RETRANSMIT        true                    ///< stream connections retransmit a lost segment after one duplicate ACK, see tcp_retransmit.h
+#define TCP_EARLY_RETRANSMIT_WAIT   20                      ///< no progress this long after a duplicate ACK before that retransmit [ms]
+#define TCP_EARLY_RETRANSMIT_CHECK  10                      ///< how often the watched stream connections are checked [ms]
 
 /* ------------ PRUSA BACKEND CFG  --------------*/
 #define HOST_URL_CAM_PATH           "/c/snapshot"           ///< path for sending photo to prusa connect

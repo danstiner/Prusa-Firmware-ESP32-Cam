@@ -1278,6 +1278,7 @@ void Server_streamJpg(AsyncWebServerRequest* request) {
     request->send(501);
     return;
   }
+  TcpRetransmit_Watch(request->client());
   response->addHeader("Access-Control-Allow-Origin", "*");
   request->send(response);
 }
