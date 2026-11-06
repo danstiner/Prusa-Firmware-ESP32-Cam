@@ -40,6 +40,7 @@
 #ifdef ESP32_M5_UNIT_CAMS3
 
 /* --------------- CAMERA CFG -------------------*/
+#define CAMERA_FB_COUNT             2       ///< driver frame buffers: one fills while the other holds the newest frame
 #define PWDN_GPIO_NUM               -1      ///< Power down control pin
 #define RESET_GPIO_NUM              21      ///< Reset control pin
 #define SIOD_GPIO_NUM               17      ///< SCCB: SI/O data pin

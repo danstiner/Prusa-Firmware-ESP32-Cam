@@ -28,6 +28,7 @@
 #ifdef M5STACK_TIMERCAMERA
 
 /* --------------- CAMERA CFG -------------------*/
+#define CAMERA_FB_COUNT             1       ///< driver frame buffers; 2 is unmeasured on the classic ESP32
 #define PWDN_GPIO_NUM               -1      ///< Power down control pin
 #define RESET_GPIO_NUM              15      ///< Reset control pin
 #define XCLK_GPIO_NUM               27      ///< External clock pin
