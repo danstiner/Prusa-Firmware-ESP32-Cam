@@ -9,7 +9,7 @@
    This project uses other libraries. It is necessary to install them in the arduino IDE.
    - Library           - License  - Version - Link
    - ESPAsyncWebServer - LGPL 3.0 - 3.4.5   - https://github.com/mathieucarbou/ESPAsyncWebServer
-   - AsyncTCP          - LGPL 3.0 - 3.3.1   - https://github.com/mathieucarbou/AsyncTCP
+   - AsyncTCP          - LGPL 3.0 - 3.3.8   - https://github.com/ESP32Async/AsyncTCP
    - ArduinoJson       - MIT      - 7.3.0   - https://github.com/bblanchon/ArduinoJson
    - ArduinoUniqueID   - MIT      - 1.3.0   - https://github.com/ricaun/ArduinoUniqueID
    - arduino-esp32     - LGPL 2.1 - 3.1.0   - https://github.com/espressif/arduino-esp32
