@@ -1302,14 +1302,17 @@ static_assert(((STREAM_SEND_BUFFER_TOTAL + TCP_MSS - 1) / TCP_MSS) + STREAM_SEND
           call to change this per connection, so this raises the pcb's snd_buf before anything is
           sent; ACKs add back what they free, as for any connection. Three times still leaves the
           queue room for partial segments.
-          Only where lwIP takes its buffers from PSRAM (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP, set for
-          the ESP32-S3 in arduino-esp32 3.1.0). On the classic ESP32 they come from internal RAM, where
-          two viewers would hold up to 34 KB more that the upload's TLS needs.
+          Only where lwIP takes its buffers from PSRAM: CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP (set for the
+          ESP32-S3 in arduino-esp32 3.1.0) and PSRAM found at boot. Otherwise they come from internal
+          RAM, where two viewers would hold up to 23 KB more that the upload's TLS needs.
    @param AsyncWebServerRequest* request
    @return void
 */
 void Server_RaiseSendBuffer(AsyncWebServerRequest* request) {
 #if LWIP_TCPIP_CORE_LOCKING && CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
+  if (false == psramFound()) {
+    return;
+  }
   AsyncClient* client = request->client();
   LOCK_TCPIP_CORE();
   tcp_pcb* pcb = (NULL != client) ? client->pcb() : NULL;
