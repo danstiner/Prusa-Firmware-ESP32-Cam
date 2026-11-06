@@ -92,6 +92,7 @@ void Server_InitWebServer() {
   Server_InitWebServer_Sets();
   Server_InitWebServer_Update();
   Server_InitWebServer_Stream();
+  Server_InitWebServer_CrashInfo();
 
   /* route for not found page */
   server.onNotFound(Server_handleNotFound);
