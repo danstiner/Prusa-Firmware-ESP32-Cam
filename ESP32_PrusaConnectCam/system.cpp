@@ -536,8 +536,8 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
       bool captured = SystemCamera.CapturePhoto();
       PhotoCaptureRequests.ServeUpTo(requested);
 
-      /* send photo to backend*/
-      if (true == upload) {
+      /* send photo to backend, unless WiFi dropped or an OTA started during the photo */
+      if ((true == upload) && (WL_CONNECTED == WiFi.status()) && (false == FirmwareUpdate.Processing)) {
         SystemLog.AddEvent(LogLevel_Verbose, F("Task photo processing. Start sending photo"));
         esp_task_wdt_reset();
         Connect.SendLastPhotoToBackend(captured);
