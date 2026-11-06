@@ -524,6 +524,11 @@ void System_TaskCaptureAndSendPhoto(void *pvParameters) {
       Connect.IncreaseSendingIntervalCounter();
     }
 
+    /* the info upload can take seconds: WiFi may have dropped or an OTA started meanwhile */
+    if ((true == upload) && ((WL_CONNECTED != WiFi.status()) || (true == FirmwareUpdate.Processing))) {
+      upload = false;
+    }
+
     /* one photo serves an upload due and every /action_capture request taken before it starts */
     uint32_t requested = PhotoCaptureRequests.Pending();
     if ((true == upload) || (true == PhotoCaptureRequests.HasWaiting(requested))) {
