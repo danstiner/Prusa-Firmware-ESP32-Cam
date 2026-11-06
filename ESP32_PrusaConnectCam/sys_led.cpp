@@ -97,11 +97,17 @@ void sys_led::setTimer(uint32_t i_time) {
 uint32_t sys_led::getTimer() {
   uint32_t tmp = 0;
 
+#if (true == STATUS_LED_ENABLE)
   if (digitalRead(pin) == STATUS_LED_OFF_PIN_LEVEL) {
     tmp = ledOnDuration;
   } else {
     tmp = time;
   }
+#else
+  /* no LED to blink: the task only resets its watchdog. digitalRead() of the unused pin reads 0, which would
+     keep it on the 100 ms on-time */
+  tmp = 1000;
+#endif
 
   return tmp;
 }
