@@ -67,10 +67,17 @@ void Server_InitWebServer_CrashInfo() {
         out += " 0x" + String(dump->exc_bt_info.bt[i], HEX);
       }
       out += "\ncoredump_app_elf_sha256: ";
-      for (size_t i = 0; (i < sizeof(dump->app_elf_sha256)) && (0 != dump->app_elf_sha256[i]); i++) {
-        out += (char)dump->app_elf_sha256[i];
+      /* the dump stays in flash until the next crash, so it may be from an earlier build */
+      bool same_build = true;
+      size_t n = 0;
+      for (; (n < sizeof(dump->app_elf_sha256)) && (0 != dump->app_elf_sha256[n]); n++) {
+        out += (char)dump->app_elf_sha256[n];
+        if ((n >= (sizeof(sha) - 1)) || (sha[n] != (char)dump->app_elf_sha256[n])) {
+          same_build = false;
+        }
       }
       out += "\n";
+      out += "coredump_from_running_build: " + String(((0 < n) && (true == same_build)) ? "yes" : "no") + "\n";
     } else {
       out += "coredump: none\n";
     }
